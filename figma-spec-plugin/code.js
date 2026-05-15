@@ -326,6 +326,61 @@ function getNodeByIdSafe(id) {
   }
 }
 
+/**
+ * Индексы детей от root до target (без root). Пустой массив — target совпадает с root.
+ */
+function getNodePathFromRoot(rootNode, targetNode) {
+  if (!rootNode || !targetNode) return null;
+  if (targetNode.id === rootNode.id) {
+    return [];
+  }
+
+  var path = [];
+  var current = targetNode;
+
+  while (current && current.id !== rootNode.id) {
+    var parent = current.parent;
+    if (!parent || !('children' in parent)) {
+      return null;
+    }
+
+    var idx = -1;
+    var k;
+    for (k = 0; k < parent.children.length; k++) {
+      if (parent.children[k].id === current.id) {
+        idx = k;
+        break;
+      }
+    }
+    if (idx < 0) {
+      return null;
+    }
+
+    path.unshift(idx);
+    current = parent;
+  }
+
+  if (!current || current.id !== rootNode.id) {
+    return null;
+  }
+
+  return path;
+}
+
+function getNodeByPath(rootNode, path) {
+  if (!rootNode || !path || !Array.isArray(path)) return null;
+
+  var current = rootNode;
+  var i;
+  for (i = 0; i < path.length; i++) {
+    var index = path[i];
+    if (!current || !('children' in current)) return null;
+    if (!current.children[index]) return null;
+    current = current.children[index];
+  }
+  return current;
+}
+
 function canCloneNode(node) {
   return node && typeof node.clone === 'function';
 }
@@ -379,6 +434,7 @@ function getVisibleLayoutChildren(node) {
     if (child.name && child.name.startsWith('Child overlay')) return false;
     if (child.name && child.name.startsWith('Gap overlay')) return false;
     if (child.name && child.name.startsWith('Preview /')) return false;
+    if (child.name && child.name.startsWith('Target container outline')) return false;
 
     if (typeof child.width !== 'number' || typeof child.height !== 'number') {
       return false;
@@ -424,22 +480,25 @@ function getNodeBoundsRelativeToRoot(node, rootNode) {
   };
 }
 
-function getGapBoundsBetweenChildren(previousChild, nextChild, rootClone, direction) {
+function getGapBoundsBetweenChildrenRelativeToRoot(
+  previousChild,
+  nextChild,
+  rootClone,
+  targetNode,
+  direction
+) {
   var prev = getNodeBoundsRelativeToRoot(previousChild, rootClone);
   var next = getNodeBoundsRelativeToRoot(nextChild, rootClone);
+  var targetBounds = getNodeBoundsRelativeToRoot(targetNode, rootClone);
+
+  var extra = PADDING_OVERLAY_LAYOUT.extraSize || 20;
 
   if (direction === 'horizontal') {
-    var extra = PADDING_OVERLAY_LAYOUT.extraSize || 20;
-
     var x = prev.x + prev.width;
     var width = next.x - x;
 
-    var cloneH =
-      rootClone && typeof rootClone.height === 'number' && !isNaN(rootClone.height)
-        ? rootClone.height
-        : 0;
-    var height = cloneH + extra;
-    var y = cloneH - height;
+    var height = targetBounds.height + extra;
+    var y = targetBounds.y + targetBounds.height - height;
 
     return {
       x: x,
@@ -470,6 +529,32 @@ function getGapBoundsBetweenChildren(previousChild, nextChild, rootClone, direct
   return null;
 }
 
+function createTargetContainerOutline(targetBounds) {
+  var outline = figma.createFrame();
+  outline.name = 'Target container outline';
+  outline.layoutMode = 'NONE';
+  outline.clipsContent = false;
+
+  outline.x = Math.round(Number(targetBounds.x) || 0);
+  outline.y = Math.round(Number(targetBounds.y) || 0);
+  outline.resize(
+    Math.max(1, Math.round(Number(targetBounds.width) || 1)),
+    Math.max(1, Math.round(Number(targetBounds.height) || 1))
+  );
+
+  outline.fills = [];
+  outline.strokes = [
+    {
+      type: 'SOLID',
+      color: hexToRgb('#003F8A'),
+    },
+  ];
+  outline.strokeWeight = 1;
+  outline.cornerRadius = 0;
+
+  return outline;
+}
+
 function getChildOverlayOffset(child) {
   if (child && child.type === 'TEXT') {
     return {
@@ -494,6 +579,7 @@ function shouldCreateChildOverlay(node) {
   if (node.name && String(node.name).indexOf('Child overlay') === 0) return false;
   if (node.name && String(node.name).indexOf('Gap overlay') === 0) return false;
   if (node.name && String(node.name).indexOf('Preview /') === 0) return false;
+  if (node.name && String(node.name).indexOf('Target container outline') === 0) return false;
 
   var box = node.absoluteBoundingBox;
 
@@ -550,22 +636,26 @@ function createChildOverlay(child, rootClone) {
   return overlay;
 }
 
-function createChildOverlaysForClone(clone) {
+function createChildOverlaysForTarget(targetNode, rootClone) {
   var overlays = [];
 
-  if (!nodeHasChildren(clone)) return overlays;
+  if (!nodeHasChildren(targetNode)) return overlays;
 
-  var ch = clone.children;
+  var ch = targetNode.children;
   var i;
   for (i = 0; i < ch.length; i++) {
     var child = ch[i];
     if (!shouldCreateChildOverlay(child)) continue;
 
-    var co = createChildOverlay(child, clone);
+    var co = createChildOverlay(child, rootClone);
     if (co) overlays.push(co);
   }
 
   return overlays;
+}
+
+function createChildOverlaysForClone(clone) {
+  return createChildOverlaysForTarget(clone, clone);
 }
 
 function createZeroPointFrame() {
@@ -1072,7 +1162,7 @@ async function createGapOverlay(bounds, tokenizedGap, direction, options) {
   return overlay;
 }
 
-async function createGapOverlaysForClone(clone, container, options) {
+async function createGapOverlaysForTarget(targetNode, rootClone, container, options) {
   var overlays = [];
 
   if (!container || !container.spacing || !container.spacing.gap) {
@@ -1105,7 +1195,7 @@ async function createGapOverlaysForClone(clone, container, options) {
     bottomPaddingOverlayHeight: bottomPaddingOverlayHeight,
   };
 
-  var children = getVisibleLayoutChildren(clone);
+  var children = getVisibleLayoutChildren(targetNode);
 
   if (children.length < 2) {
     return overlays;
@@ -1116,10 +1206,11 @@ async function createGapOverlaysForClone(clone, container, options) {
     var previousChild = children[i];
     var nextChild = children[i + 1];
 
-    var bounds = getGapBoundsBetweenChildren(
+    var bounds = getGapBoundsBetweenChildrenRelativeToRoot(
       previousChild,
       nextChild,
-      clone,
+      rootClone,
+      targetNode,
       direction
     );
 
@@ -1137,6 +1228,10 @@ async function createGapOverlaysForClone(clone, container, options) {
   }
 
   return overlays;
+}
+
+async function createGapOverlaysForClone(clone, container, options) {
+  return createGapOverlaysForTarget(clone, clone, container, options);
 }
 
 async function createPaddingOverlay(side, tokenizedValue, bounds) {
@@ -1221,12 +1316,15 @@ async function createPreviewUnavailableWrap(messageStr, usableInnerWidth) {
 
 async function createPaddingVisualization(
   container,
-  sourceNode,
+  rootSourceNode,
   usableInnerWidth,
   designTokens,
-  sections
+  sections,
+  options
 ) {
   void designTokens;
+
+  options = options || {};
 
   var previewSections = normalizeSectionSettings(sections || {});
 
@@ -1237,14 +1335,26 @@ async function createPaddingVisualization(
   overlayContainer.fills = [];
   overlayContainer.strokes = [];
 
-  if (!canCloneNode(sourceNode)) {
+  if (!canCloneNode(rootSourceNode)) {
     return createPreviewUnavailableWrap('Preview недоступен', usableInnerWidth);
   }
 
-  var clone = null;
+  var targetNodeId =
+    options.targetNodeId != null && options.targetNodeId !== ''
+      ? options.targetNodeId
+      : rootSourceNode.id;
+
+  var originalTargetNode = getNodeByIdSafe(targetNodeId);
+  if (!originalTargetNode) {
+    originalTargetNode = rootSourceNode;
+  }
+
+  var targetPath = getNodePathFromRoot(rootSourceNode, originalTargetNode);
+
+  var rootClone = null;
   try {
-    clone = sourceNode.clone();
-    clone.name = 'Preview / ' + String(sourceNode.name);
+    rootClone = rootSourceNode.clone();
+    rootClone.name = 'Preview / ' + String(rootSourceNode.name);
   } catch (cloneErr) {
     console.warn('Cannot clone source node', cloneErr);
 
@@ -1257,10 +1367,40 @@ async function createPaddingVisualization(
       : Math.max(32, getPreviewCardWidth() - 40);
 
   var maxCloneH = 180;
-  var scale = resizeCloneToFit(clone, maxCloneW, maxCloneH);
+  var scale = resizeCloneToFit(rootClone, maxCloneW, maxCloneH);
 
-  var cw = Math.max(1, Math.round(Number(clone.width) || 1));
-  var ch = Math.max(1, Math.round(Number(clone.height) || 1));
+  var targetCloneNode = rootClone;
+
+  if (targetPath != null && targetPath.length > 0) {
+    var resolved = getNodeByPath(rootClone, targetPath);
+    if (resolved) {
+      targetCloneNode = resolved;
+    }
+  }
+
+  var targetBounds;
+  if (targetCloneNode === rootClone) {
+    targetBounds = {
+      x: 0,
+      y: 0,
+      width: rootClone.width,
+      height: rootClone.height,
+    };
+  } else {
+    var rel = getNodeBoundsRelativeToRoot(targetCloneNode, rootClone);
+    targetBounds = {
+      x: rel.x,
+      y: rel.y,
+      width: rel.width,
+      height: rel.height,
+    };
+  }
+
+  var cw = Math.max(1, Math.round(Number(rootClone.width) || 1));
+  var ch = Math.max(1, Math.round(Number(rootClone.height) || 1));
+
+  var targetW = Math.max(1, Math.round(Number(targetBounds.width) || 1));
+  var targetH = Math.max(1, Math.round(Number(targetBounds.height) || 1));
 
   var pad = container.padding;
   var top = Math.round(getOverlayPaddingSize(pad.top.value, scale));
@@ -1268,19 +1408,27 @@ async function createPaddingVisualization(
   var bottom = Math.round(getOverlayPaddingSize(pad.bottom.value, scale));
   var left = Math.round(getOverlayPaddingSize(pad.left.value, scale));
 
-  var topSize = Math.min(top, ch);
-  var bottomSize = Math.min(bottom, ch);
-  var leftSize = Math.min(left, cw);
-  var rightSize = Math.min(right, cw);
+  var topSize = Math.min(top, targetH);
+  var bottomSize = Math.min(bottom, targetH);
+  var leftSize = Math.min(left, targetW);
+  var rightSize = Math.min(right, targetW);
 
-  clone.x = 0;
-  clone.y = 0;
+  var targetX = Math.round(Number(targetBounds.x) || 0);
+  var targetY = Math.round(Number(targetBounds.y) || 0);
+  var targetWidth = targetW;
+  var targetHeight = targetH;
 
-  overlayContainer.appendChild(clone);
+  rootClone.x = 0;
+  rootClone.y = 0;
+
+  overlayContainer.appendChild(rootClone);
   overlayContainer.resize(cw, ch);
 
+  var targetOutline = createTargetContainerOutline(targetBounds);
+  overlayContainer.appendChild(targetOutline);
+
   if (previewSections.childOverlays !== false) {
-    var childOverlaysList = createChildOverlaysForClone(clone);
+    var childOverlaysList = createChildOverlaysForTarget(targetCloneNode, rootClone);
     var cj;
     for (cj = 0; cj < childOverlaysList.length; cj++) {
       overlayContainer.appendChild(childOverlaysList[cj]);
@@ -1288,9 +1436,14 @@ async function createPaddingVisualization(
   }
 
   if (previewSections.gapOverlays !== false) {
-    var gapOverlaysList = await createGapOverlaysForClone(clone, container, {
-      bottomPaddingOverlayHeight: bottomSize,
-    });
+    var gapOverlaysList = await createGapOverlaysForTarget(
+      targetCloneNode,
+      rootClone,
+      container,
+      {
+        bottomPaddingOverlayHeight: bottomSize,
+      }
+    );
     var gi;
     for (gi = 0; gi < gapOverlaysList.length; gi++) {
       overlayContainer.appendChild(gapOverlaysList[gi]);
@@ -1300,63 +1453,41 @@ async function createPaddingVisualization(
   var extra = PADDING_OVERLAY_LAYOUT.extraSize || 20;
 
   var oTop = await createPaddingOverlay('Top', pad.top, {
-    x: -extra,
-    y: 0,
-    width: cw + extra,
+    x: targetX - extra,
+    y: targetY,
+    width: targetWidth + extra,
     height: topSize,
   });
 
   var oRight = await createPaddingOverlay('Right', pad.right, {
-    x: cw - rightSize,
-    y: -extra,
+    x: targetX + targetWidth - rightSize,
+    y: targetY - extra,
     width: rightSize,
-    height: ch + extra,
+    height: targetHeight + extra,
     topOverlayHeight: topSize,
     bottomOverlayHeight: bottomSize,
   });
 
   var oBottom = await createPaddingOverlay('Bottom', pad.bottom, {
-    x: -extra,
-    y: ch - bottomSize,
-    width: cw + extra,
+    x: targetX - extra,
+    y: targetY + targetHeight - bottomSize,
+    width: targetWidth + extra,
     height: bottomSize,
   });
 
   var oLeft = await createPaddingOverlay('Left', pad.left, {
-    x: 0,
-    y: -extra,
+    x: targetX,
+    y: targetY - extra,
     width: leftSize,
-    height: ch + extra,
+    height: targetHeight + extra,
     topOverlayHeight: topSize,
     bottomOverlayHeight: bottomSize,
   });
-
-  var hasOverlay = !!(oTop || oRight || oBottom || oLeft);
 
   if (oTop) overlayContainer.appendChild(oTop);
   if (oRight) overlayContainer.appendChild(oRight);
   if (oBottom) overlayContainer.appendChild(oBottom);
   if (oLeft) overlayContainer.appendChild(oLeft);
-
-  if (!hasOverlay) {
-    var emptyLabel = await createTextNode('Padding отсутствует', {
-      name: 'No padding label',
-      fontName: activeFontRegular,
-      fontSize: 12,
-      lineHeight: { unit: 'PERCENT', value: 130 },
-      fills: [{ type: 'SOLID', color: SPEC_COLORS.labelText }],
-    });
-
-    emptyLabel.x = 0;
-    emptyLabel.y = ch + 8;
-
-    overlayContainer.appendChild(emptyLabel);
-
-    overlayContainer.resize(
-      Math.round(Math.max(cw, emptyLabel.width)),
-      Math.round(ch + emptyLabel.height + 8)
-    );
-  }
 
   return overlayContainer;
 }
@@ -1364,24 +1495,26 @@ async function createPaddingVisualization(
 async function createContainerPreviewCard(container, root, designTokens, sections) {
   var rad = getDesignRadiusMd(designTokens);
   var previewCardW = getPreviewCardWidth();
-  var previewPad = PREVIEW_CANVAS_PADDING;
+  var padLR = PREVIEW_CANVAS_PADDING;
+  var padTB = 24;
 
   var card = createFrameNode('Container preview card', {
     fills: [],
     strokes: [],
+    strokeWeight: 0,
     layoutMode: 'VERTICAL',
     itemSpacing: 0,
     primaryAxisSizingMode: 'AUTO',
-    counterAxisSizingMode: 'FIXED',
-    width: previewCardW,
+    counterAxisSizingMode: 'AUTO',
     cornerRadius: rad,
-    paddingTop: previewPad,
-    paddingRight: previewPad,
-    paddingBottom: previewPad,
-    paddingLeft: previewPad,
-    counterAxisAlignItems: 'CENTER',
-    primaryAxisAlignItems: 'CENTER',
+    paddingTop: padTB,
+    paddingRight: padLR,
+    paddingBottom: padTB,
+    paddingLeft: padLR,
+    counterAxisAlignItems: 'MIN',
+    primaryAxisAlignItems: 'MIN',
     clipsContent: false,
+    effects: SPEC_EFFECTS.cardShadow,
   });
 
   applyFillToken(
@@ -1390,21 +1523,39 @@ async function createContainerPreviewCard(container, root, designTokens, section
     SPEC_COLORS.containerCardBg
   );
 
-  applyStrokeToken(card, designTokens.colors.cardBorder, SPEC_COLORS.cardBorder, 1);
+  try {
+    card.strokes = [];
+    card.strokeWeight = 0;
+  } catch (_noStroke) {}
 
-  var sourceNode = getNodeByIdSafe(container.id) || root;
+  try {
+    card.clipsContent = false;
+  } catch (_clipErr) {}
 
-  var innerUsable = Math.max(32, previewCardW - previewPad * 2);
+  var innerUsable = Math.max(32, previewCardW - padLR * 2);
 
   var viz = await createPaddingVisualization(
     container,
-    sourceNode,
+    root,
     innerUsable,
     designTokens,
-    sections
+    sections,
+    {
+      targetNodeId: container.id,
+    }
   );
 
   card.appendChild(viz);
+
+  try {
+    card.resizeWithoutConstraints(previewCardW, card.height);
+  } catch (_previewResizeErr) {}
+
+  try {
+    card.layoutAlign = 'STRETCH';
+  } catch (error) {
+    console.warn('Cannot set Container preview card layoutAlign STRETCH', error);
+  }
 
   return card;
 }
@@ -1425,7 +1576,10 @@ async function createContainerSpecRow(container, index, root, designTokens, sect
     paddingLeft: 0,
     counterAxisAlignItems: 'CENTER',
     primaryAxisAlignItems: 'MIN',
+    clipsContent: false,
   });
+
+  row.clipsContent = false;
 
   var descCard = await createContainerCard(container, index, designTokens);
   row.appendChild(descCard);
@@ -1664,81 +1818,145 @@ function pathJoin(parts) {
   return parts.join(' / ');
 }
 
-function parseContainers(root) {
-  var containers = [];
+function isComponentBoundaryNode(node) {
+  return (
+    node &&
+    (node.type === 'INSTANCE' ||
+      node.type === 'COMPONENT' ||
+      node.type === 'COMPONENT_SET')
+  );
+}
 
-  function walk(node, parts) {
-    if (isSupportedNode(node)) {
-      var dir = getDirection(node);
-      var layout = {
-        direction: dir,
-        wrap:
-          'layoutWrap' in node && node.layoutWrap !== undefined
-            ? node.layoutWrap === 'WRAP'
-            : false,
-      };
+function canTraverseSpecNode(node, rootNode) {
+  if (!node) return false;
 
-      if ('primaryAxisAlignItems' in node && node.primaryAxisAlignItems !== undefined) {
-        layout.primaryAxisAlignment = String(node.primaryAxisAlignItems);
-      }
-
-      if ('counterAxisAlignItems' in node && node.counterAxisAlignItems !== undefined) {
-        layout.counterAxisAlignment = String(node.counterAxisAlignItems);
-      }
-
-      var padding = parsePadding(node);
-      var spacing = parseSpacing(node);
-
-      var childNames = [];
-      if ('children' in node && node.children && node.children.length) {
-        for (var ci = 0; ci < node.children.length; ci++) {
-          childNames.push(node.children[ci].name);
-        }
-      }
-
-      var warnings = [];
-
-      if (dir === 'none') {
-        warnings.push(
-          'Контейнер не использует Auto Layout. Padding и spacing могут быть неполными.'
-        );
-      }
-
-      var hasCustomSpacing =
-        padding.top.isCustom ||
-        padding.right.isCustom ||
-        padding.bottom.isCustom ||
-        padding.left.isCustom ||
-        !!(spacing.gap && spacing.gap.isCustom) ||
-        !!(spacing.rowGap && spacing.rowGap.isCustom);
-
-      if (hasCustomSpacing) {
-        warnings.push('Некоторые spacing-значения не совпадают с токенами.');
-      }
-
-      containers.push({
-        id: node.id,
-        name: node.name,
-        path: pathJoin(parts),
-        type: node.type,
-        layout: layout,
-        sizing: parseSizing(node),
-        padding: padding,
-        spacing: spacing,
-        children: childNames,
-        warnings: warnings,
-      });
-    }
-
-    if (!('children' in node) || !node.children || !node.children.length) return;
-
-    for (var i = 0; i < node.children.length; i++) {
-      var ch = node.children[i];
-      walk(ch, parts.concat([ch.name]));
-    }
+  if (node.id === rootNode.id) {
+    return true;
   }
 
-  walk(root, [root.name]);
+  if (isComponentBoundaryNode(node)) {
+    return false;
+  }
+
+  if (
+    node.type === 'FRAME' ||
+    node.type === 'GROUP' ||
+    node.type === 'SECTION'
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function shouldCreateContainerSpecForNode(node, rootNode) {
+  if (!node) return false;
+
+  if (node.id === rootNode.id) {
+    return true;
+  }
+
+  if (isComponentBoundaryNode(node)) {
+    return false;
+  }
+
+  if (
+    node.type === 'FRAME' ||
+    node.type === 'GROUP' ||
+    node.type === 'SECTION'
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function shouldIncludeSpecNode(node) {
+  return !!node;
+}
+
+function walkSpecNode(node, rootNode, containers, parts) {
+  if (!shouldIncludeSpecNode(node)) {
+    return;
+  }
+
+  if (shouldCreateContainerSpecForNode(node, rootNode)) {
+    var dir = getDirection(node);
+    var layout = {
+      direction: dir,
+      wrap:
+        'layoutWrap' in node && node.layoutWrap !== undefined
+          ? node.layoutWrap === 'WRAP'
+          : false,
+    };
+
+    if ('primaryAxisAlignItems' in node && node.primaryAxisAlignItems !== undefined) {
+      layout.primaryAxisAlignment = String(node.primaryAxisAlignItems);
+    }
+
+    if ('counterAxisAlignItems' in node && node.counterAxisAlignItems !== undefined) {
+      layout.counterAxisAlignment = String(node.counterAxisAlignItems);
+    }
+
+    var padding = parsePadding(node);
+    var spacing = parseSpacing(node);
+
+    var childNames = [];
+    if ('children' in node && node.children && node.children.length) {
+      for (var ci = 0; ci < node.children.length; ci++) {
+        childNames.push(node.children[ci].name);
+      }
+    }
+
+    var warnings = [];
+
+    if (dir === 'none') {
+      warnings.push(
+        'Контейнер не использует Auto Layout. Padding и spacing могут быть неполными.'
+      );
+    }
+
+    var hasCustomSpacing =
+      padding.top.isCustom ||
+      padding.right.isCustom ||
+      padding.bottom.isCustom ||
+      padding.left.isCustom ||
+      !!(spacing.gap && spacing.gap.isCustom) ||
+      !!(spacing.rowGap && spacing.rowGap.isCustom);
+
+    if (hasCustomSpacing) {
+      warnings.push('Некоторые spacing-значения не совпадают с токенами.');
+    }
+
+    containers.push({
+      id: node.id,
+      name: node.name,
+      path: pathJoin(parts),
+      type: node.type,
+      layout: layout,
+      sizing: parseSizing(node),
+      padding: padding,
+      spacing: spacing,
+      children: childNames,
+      warnings: warnings,
+    });
+  }
+
+  if (!canTraverseSpecNode(node, rootNode)) {
+    return;
+  }
+
+  if (!('children' in node) || !node.children || !node.children.length) return;
+
+  for (var i = 0; i < node.children.length; i++) {
+    var ch = node.children[i];
+    walkSpecNode(ch, rootNode, containers, parts.concat([ch.name]));
+  }
+}
+
+function parseContainers(root) {
+  var containers = [];
+  walkSpecNode(root, root, containers, [root.name]);
   return containers;
 }
 
@@ -3295,7 +3513,7 @@ async function createContainersSection(spec, root, designTokens, sections) {
         var previewCard = brow.children[1];
         descCard.layoutSizingHorizontal = 'FIXED';
         descCard.layoutSizingVertical = 'FILL';
-        previewCard.layoutSizingHorizontal = 'FIXED';
+        previewCard.layoutSizingHorizontal = 'FILL';
         previewCard.layoutSizingVertical = 'FILL';
       }
     } catch (_rowStretchErr) {}
