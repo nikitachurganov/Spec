@@ -44,7 +44,24 @@ var SPEC_LAYOUT = {
   cardCornerRadius: 12,
 };
 
+/** Корневой фрейм «Specification / …» */
+var SPECIFICATION_LAYOUT = {
+  width: 1440,
+  padding: 60,
+  gap: 32,
+};
+
 var SPEC_COLORS = {
+  /** Фон корневого фрейма Specification / … */
+  specificationBg: hexToRgb('#FFFFFF'),
+  /** Фон секций вроде Containers section */
+  sectionBg: hexToRgb('#F7F7F7'),
+  /** Заголовки блоков Spec / Component anatomy */
+  sectionTitle: hexToRgb('#333333'),
+  /** Фон обёртки вокруг визуальной анатомии */
+  anatomyContainerBg: hexToRgb('#F7F7F7'),
+  /** Фон блока Containers section */
+  containersSectionBg: hexToRgb('#F7F7F7'),
   pageBg: { r: 0.96, g: 0.96, b: 0.96 },
   cardBg: { r: 1, g: 1, b: 1 },
   containerCardBg: hexToRgb('#FFFFFF'),
@@ -67,6 +84,12 @@ var SPEC_COLORS = {
 SPEC_COLORS.gapMeasure = GAP_OVERLAY_COLOR;
 SPEC_COLORS.gapValueSquare = GAP_OVERLAY_COLOR;
 SPEC_COLORS.gapStroke = GAP_OVERLAY_COLOR;
+
+var SECTION_TITLE_STYLE = {
+  fontSize: 32,
+  lineHeight: { unit: 'PERCENT', value: 130 },
+  color: SPEC_COLORS.sectionTitle,
+};
 
 /** Padding measurer: measure fill #003F8A @ measureOpacity (~60%). */
 var PADDING_OVERLAY_LAYOUT = {
@@ -260,29 +283,23 @@ function descriptionCardValueColumnWidth(designTokens) {
 }
 
 var DEFAULT_SECTION_SETTINGS = {
-  overview: true,
-  anatomy: true,
   containers: true,
+  anatomy: true,
   childOverlays: true,
   gapOverlays: true,
 };
 
 function normalizeSectionSettings(settings) {
   return {
-    overview:
-      settings && typeof settings.overview === 'boolean'
-        ? settings.overview
-        : DEFAULT_SECTION_SETTINGS.overview,
+    containers:
+      settings && typeof settings.containers === 'boolean'
+        ? settings.containers
+        : DEFAULT_SECTION_SETTINGS.containers,
 
     anatomy:
       settings && typeof settings.anatomy === 'boolean'
         ? settings.anatomy
         : DEFAULT_SECTION_SETTINGS.anatomy,
-
-    containers:
-      settings && typeof settings.containers === 'boolean'
-        ? settings.containers
-        : DEFAULT_SECTION_SETTINGS.containers,
 
     childOverlays:
       settings && typeof settings.childOverlays === 'boolean'
@@ -1401,8 +1418,7 @@ async function createContainerSpecRow(container, index, root, designTokens, sect
     itemSpacing: SPEC_CARD_LAYOUT.rowGap,
     strokes: [],
     primaryAxisSizingMode: 'AUTO',
-    counterAxisSizingMode: 'FIXED',
-    width: CONTENT_WIDTH,
+    counterAxisSizingMode: 'AUTO',
     paddingTop: 0,
     paddingRight: 0,
     paddingBottom: 0,
@@ -1411,22 +1427,16 @@ async function createContainerSpecRow(container, index, root, designTokens, sect
     primaryAxisAlignItems: 'MIN',
   });
 
-  row.resize(CONTENT_WIDTH, row.height);
-
   var descCard = await createContainerCard(container, index, designTokens);
   row.appendChild(descCard);
 
   var preview = await createContainerPreviewCard(container, root, designTokens, sections);
   row.appendChild(preview);
 
-  try {
-    descCard.layoutSizingHorizontal = 'FIXED';
-    descCard.layoutSizingVertical = 'FILL';
-    preview.layoutSizingHorizontal = 'FIXED';
-    preview.layoutSizingVertical = 'FILL';
-  } catch (_stretchErr) {}
-
-  row.resize(CONTENT_WIDTH, Math.max(descCard.height, preview.height));
+  row.resizeWithoutConstraints(
+    descCard.width + preview.width + SPEC_CARD_LAYOUT.rowGap,
+    Math.max(descCard.height, preview.height)
+  );
 
   return row;
 }
@@ -1958,7 +1968,6 @@ async function getLibraryTextStyleByNames(names) {
   try {
     var tl = figma.teamLibrary;
     if (!tl) {
-      console.warn('Team Library API is not available.');
       return null;
     }
 
@@ -1977,9 +1986,6 @@ async function getLibraryTextStyleByNames(names) {
       return matched;
     }
 
-    console.warn(
-      'Library text styles API is not available in this Figma Plugin API version.'
-    );
     return null;
   } catch (error) {
     console.warn('Cannot read library text styles', error);
@@ -1994,7 +2000,6 @@ async function resolveTextStyle(names, fallbackLabel) {
   var lib = await getLibraryTextStyleByNames(names);
   if (lib) return { source: 'library', style: lib };
 
-  console.warn('Text style not found: ' + fallbackLabel);
   return { source: 'fallback', style: null };
 }
 
@@ -2068,7 +2073,6 @@ async function resolveVariableByNames(names, fallbackLabel) {
   var gv = await getLibraryVariableByNames(names);
   if (gv) return { source: 'library', variable: gv };
 
-  console.warn('Variable not found: ' + fallbackLabel);
   return { source: 'fallback', variable: null };
 }
 
@@ -2431,9 +2435,30 @@ async function loadSpecFonts() {
 
 
 function stretchChildHorizontal(f) {
-  f.layoutSizingHorizontal = 'FILL';
-  if (f.layoutMode && f.layoutMode !== 'NONE') {
-    f.layoutSizingVertical = 'HUG';
+  if (!f || !f.parent) return;
+  var parent = f.parent;
+  if (
+    !('layoutMode' in parent) ||
+    parent.layoutMode === undefined ||
+    parent.layoutMode === 'NONE'
+  ) {
+    return;
+  }
+  try {
+    f.layoutSizingHorizontal = 'FILL';
+    if (f.layoutMode && f.layoutMode !== 'NONE') {
+      f.layoutSizingVertical = 'HUG';
+    }
+  } catch (error) {
+    console.warn('stretchChildHorizontal skipped', f.name || '', error);
+  }
+}
+
+function stretchInParent(node) {
+  try {
+    node.layoutAlign = 'STRETCH';
+  } catch (error) {
+    console.warn('Cannot stretch node in parent', node && node.name, error);
   }
 }
 
@@ -3148,31 +3173,134 @@ async function createContainerCard(container, index, designTokens) {
   return card;
 }
 
-async function createContainersSection(spec, root, designTokens, sectionOrdinal, sections) {
-  var sectionTitle =
-    sectionOrdinal != null
-      ? String(sectionOrdinal) + '. Контейнеры'
-      : 'Контейнеры';
-
-  var section = createFrameNode('Containers section', {
-    fills: [],
+async function createSpecSection(containersSection) {
+  var section = createFrameNode('Spec section', {
     layoutMode: 'VERTICAL',
-    itemSpacing: SPEC_LAYOUT.cardGap,
     primaryAxisSizingMode: 'AUTO',
-    counterAxisSizingMode: 'FIXED',
+    counterAxisSizingMode: 'AUTO',
+    itemSpacing: 24,
     paddingTop: 0,
     paddingRight: 0,
     paddingBottom: 0,
     paddingLeft: 0,
+    fills: [],
+    strokes: [],
+    clipsContent: false,
   });
-  section.resize(INNER_CONTENT_WIDTH, section.height);
 
-  section.appendChild(await createSectionTitle(sectionTitle, designTokens));
+  var title = await createTextNode('Spec', {
+    name: 'Spec section title',
+    fontName: activeFontRegular,
+    fontSize: SECTION_TITLE_STYLE.fontSize,
+    lineHeight: SECTION_TITLE_STYLE.lineHeight,
+    fills: [{ type: 'SOLID', color: SECTION_TITLE_STYLE.color }],
+  });
+
+  containersSection.name = 'Containers section';
+
+  section.appendChild(title);
+  section.appendChild(containersSection);
+
+  stretchInParent(section);
+  stretchInParent(containersSection);
+
+  return section;
+}
+
+async function createAnatomySection(anatomyFrame) {
+  var section = createFrameNode('Anatomy section', {
+    layoutMode: 'VERTICAL',
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'AUTO',
+    itemSpacing: 24,
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+    fills: [],
+    strokes: [],
+    clipsContent: false,
+  });
+
+  stretchInParent(section);
+
+  var title = await createTextNode('Component anatomy', {
+    name: 'Anatomy section title',
+    fontName: activeFontRegular,
+    fontSize: SECTION_TITLE_STYLE.fontSize,
+    lineHeight: SECTION_TITLE_STYLE.lineHeight,
+    fills: [{ type: 'SOLID', color: SECTION_TITLE_STYLE.color }],
+  });
+
+  var anatomyContainer = createFrameNode('Anatomy container', {
+    layoutMode: 'VERTICAL',
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'AUTO',
+    primaryAxisAlignItems: 'CENTER',
+    counterAxisAlignItems: 'CENTER',
+    itemSpacing: 0,
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+    cornerRadius: 16,
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.anatomyContainerBg }],
+    strokes: [],
+    clipsContent: false,
+  });
+
+  stretchInParent(anatomyContainer);
+
+  anatomyFrame.name = 'Anatomy';
+
+  try {
+    anatomyFrame.fills = [];
+  } catch (clearErr) {
+    console.warn('Cannot clear Anatomy frame fills', clearErr);
+  }
+
+  anatomyContainer.appendChild(anatomyFrame);
+
+  section.appendChild(title);
+  section.appendChild(anatomyContainer);
+
+  return section;
+}
+
+async function createContainersSection(spec, root, designTokens, sections) {
+  var section = createFrameNode('Containers section', {
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.sectionBg }],
+    strokes: [],
+    layoutMode: 'VERTICAL',
+    itemSpacing: 24,
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'AUTO',
+    cornerRadius: 16,
+    paddingTop: 24,
+    paddingRight: 24,
+    paddingBottom: 24,
+    paddingLeft: 24,
+    clipsContent: false,
+  });
+
+  stretchInParent(section);
 
   for (var ck = 0; ck < spec.containers.length; ck++) {
     var brow = await createContainerSpecRow(spec.containers[ck], ck + 1, root, designTokens, sections);
 
     section.appendChild(brow);
+    try {
+      if (brow.children.length >= 2) {
+        var descCard = brow.children[0];
+        var previewCard = brow.children[1];
+        descCard.layoutSizingHorizontal = 'FIXED';
+        descCard.layoutSizingVertical = 'FILL';
+        previewCard.layoutSizingHorizontal = 'FIXED';
+        previewCard.layoutSizingVertical = 'FILL';
+      }
+    } catch (_rowStretchErr) {}
+
+    stretchInParent(brow);
     stretchChildHorizontal(brow);
   }
 
@@ -3208,36 +3336,14 @@ function generateMarkdown(spec, sections) {
   var sectionCounter = { value: 1 };
 
   var anySections =
-    sections.overview ||
-    sections.anatomy ||
-    sections.containers ||
-    false;
+    (sections.containers || sections.anatomy) || false;
 
   if (!anySections) {
     lines.push('Не выбраны информационные блоки для отображения.');
     return lines.join('\n');
   }
 
-  if (sections.overview) {
-    var ovNum = getSectionNumber(sectionCounter);
-    lines.push('## ' + ovNum + '. Общая информация');
-    lines.push('');
-    lines.push('| Параметр | Значение |');
-    lines.push('|---|---|');
-    lines.push('| Название | ' + escapeMarkdownTableCell(spec.component.name) + ' |');
-    lines.push('| Тип | ' + escapeMarkdownTableCell(spec.component.type) + ' |');
-    lines.push('| Количество контейнеров | ' + spec.containers.length + ' |');
-    lines.push('| Количество элементов анатомии | ' + spec.anatomy.length + ' |');
-
-    if (spec.warnings.length) {
-      lines.push('');
-      lines.push('## Предупреждения');
-      lines.push('');
-      for (var wi = 0; wi < spec.warnings.length; wi++) {
-        lines.push('- ' + escapeMarkdownTableCell(spec.warnings[wi]));
-      }
-    }
-  } else if (spec.warnings.length) {
+  if (spec.warnings.length) {
     var wnStandalone = getSectionNumber(sectionCounter);
     lines.push('## ' + wnStandalone + '. Предупреждения');
     lines.push('');
@@ -3376,7 +3482,7 @@ function generateMarkdown(spec, sections) {
   return lines.join('\n');
 }
 
-function buildSpecFromRoot(root) {
+function buildSpecObject(root) {
   var anatomy = parseAnatomy(root);
   var containers = parseContainers(root);
   var warnings = [];
@@ -3422,7 +3528,7 @@ function generateSpec(sections) {
   }
 
   var root = figma.currentPage.selection[0];
-  var spec = buildSpecFromRoot(root);
+  var spec = buildSpecObject(root);
 
   figma.ui.postMessage({
     type: 'SPEC_GENERATED',
@@ -3431,6 +3537,42 @@ function generateSpec(sections) {
       markdown: generateMarkdown(spec, sections),
     },
   });
+}
+
+async function createSpecFrame(root, spec, designTokens, sections) {
+  var specFrame = figma.createFrame();
+  specFrame.name = 'Spec';
+  specFrame.layoutMode = 'VERTICAL';
+  specFrame.primaryAxisSizingMode = 'AUTO';
+  specFrame.counterAxisSizingMode = 'FIXED';
+  specFrame.resize(SPEC_LAYOUT.width, 100);
+  specFrame.paddingTop = SPEC_LAYOUT.padding;
+  specFrame.paddingRight = SPEC_LAYOUT.padding;
+  specFrame.paddingBottom = SPEC_LAYOUT.padding;
+  specFrame.paddingLeft = SPEC_LAYOUT.padding;
+  specFrame.itemSpacing = SPEC_LAYOUT.sectionGap;
+  specFrame.cornerRadius = SPEC_LAYOUT.cornerRadius;
+  specFrame.fills = [{ type: 'SOLID', color: SPEC_COLORS.pageBg }];
+  specFrame.clipsContent = false;
+
+  if (!sections.containers) {
+    var emptyNotice = await createEmptySectionsNotice(designTokens);
+    specFrame.appendChild(emptyNotice);
+    stretchChildHorizontal(emptyNotice);
+  } else {
+    var containersSec = await createContainersSection(
+      spec,
+      root,
+      designTokens,
+      sections
+    );
+
+    var specSection = await createSpecSection(containersSec);
+    specFrame.appendChild(specSection);
+    stretchInParent(specSection);
+  }
+
+  return specFrame;
 }
 
 async function generateSpecFrames(sections) {
@@ -3456,85 +3598,10 @@ async function generateSpecFrames(sections) {
 
     var designTokens = await loadSpecDesignTokens();
 
-    var spec = buildSpecFromRoot(root);
+    var spec = buildSpecObject(root);
 
-    var specFrame = figma.createFrame();
+    var specFrame = await createSpecFrame(root, spec, designTokens, sections);
     specFrame.name = 'Spec / ' + root.name;
-    specFrame.layoutMode = 'VERTICAL';
-    specFrame.primaryAxisSizingMode = 'AUTO';
-    specFrame.counterAxisSizingMode = 'FIXED';
-    specFrame.resize(SPEC_LAYOUT.width, 100);
-    specFrame.paddingTop = SPEC_LAYOUT.padding;
-    specFrame.paddingRight = SPEC_LAYOUT.padding;
-    specFrame.paddingBottom = SPEC_LAYOUT.padding;
-    specFrame.paddingLeft = SPEC_LAYOUT.padding;
-    specFrame.itemSpacing = SPEC_LAYOUT.sectionGap;
-    specFrame.cornerRadius = SPEC_LAYOUT.cornerRadius;
-    specFrame.fills = [{ type: 'SOLID', color: SPEC_COLORS.pageBg }];
-
-    var header = await createSpecHeader(spec, designTokens);
-
-    specFrame.appendChild(header);
-    stretchChildHorizontal(header);
-
-    var anySections =
-      sections.overview ||
-      sections.anatomy ||
-      sections.containers ||
-      false;
-
-    if (!anySections) {
-      var emptyNotice = await createEmptySectionsNotice(designTokens);
-      specFrame.appendChild(emptyNotice);
-      stretchChildHorizontal(emptyNotice);
-    } else {
-      var ordinal = { value: 1 };
-
-      if (!sections.overview && spec.warnings && spec.warnings.length) {
-        var warnsSec = await createStandaloneWarningsSection(
-          spec,
-          designTokens,
-          getSectionNumber(ordinal)
-        );
-        specFrame.appendChild(warnsSec);
-        stretchChildHorizontal(warnsSec);
-      }
-
-      if (sections.overview) {
-        var overview = await createOverviewSection(
-          spec,
-          designTokens,
-          getSectionNumber(ordinal)
-        );
-
-        specFrame.appendChild(overview);
-        stretchChildHorizontal(overview);
-      }
-
-      if (sections.anatomy) {
-        var anatomySec = await createAnatomySection(
-          spec,
-          designTokens,
-          getSectionNumber(ordinal)
-        );
-
-        specFrame.appendChild(anatomySec);
-        stretchChildHorizontal(anatomySec);
-      }
-
-      if (sections.containers) {
-        var containersSec = await createContainersSection(
-          spec,
-          root,
-          designTokens,
-          getSectionNumber(ordinal),
-          sections
-        );
-
-        specFrame.appendChild(containersSec);
-        stretchChildHorizontal(containersSec);
-      }
-    }
 
     figma.currentPage.appendChild(specFrame);
 
@@ -3563,6 +3630,136 @@ async function generateSpecFrames(sections) {
       payload: {
         message:
           'Не удалось создать фреймы спецификации. Проверьте консоль плагина.',
+      },
+    });
+  }
+}
+
+async function buildSpecification(sections) {
+  sections = normalizeSectionSettings(sections);
+  try {
+    var selection = figma.currentPage.selection;
+
+    if (selection.length !== 1) {
+      figma.ui.postMessage({
+        type: 'ERROR',
+        payload: {
+          message:
+            selection.length === 0
+              ? 'Выберите компонент, фрейм или инстанс.'
+              : 'Выберите только один компонент, фрейм или инстанс.',
+        },
+      });
+      return;
+    }
+
+    var root = selection[0];
+
+    if (!isSupportedNode(root)) {
+      figma.ui.postMessage({
+        type: 'ERROR',
+        payload: {
+          message:
+            'Выбранный слой не поддерживается. Выберите компонент, фрейм или инстанс.',
+        },
+      });
+      return;
+    }
+
+    await loadSpecFonts();
+    var designTokens = await loadSpecDesignTokens();
+    var spec = buildSpecObject(root);
+
+    var specificationFrame = figma.createFrame();
+    specificationFrame.name = 'Specification / ' + root.name;
+    specificationFrame.layoutMode = 'VERTICAL';
+    specificationFrame.primaryAxisSizingMode = 'AUTO';
+    specificationFrame.counterAxisSizingMode = 'FIXED';
+    specificationFrame.resize(SPECIFICATION_LAYOUT.width, 100);
+    specificationFrame.itemSpacing = SPECIFICATION_LAYOUT.gap;
+    specificationFrame.paddingTop = SPECIFICATION_LAYOUT.padding;
+    specificationFrame.paddingRight = SPECIFICATION_LAYOUT.padding;
+    specificationFrame.paddingBottom = SPECIFICATION_LAYOUT.padding;
+    specificationFrame.paddingLeft = SPECIFICATION_LAYOUT.padding;
+    specificationFrame.fills = [
+      { type: 'SOLID', color: SPEC_COLORS.specificationBg },
+    ];
+    specificationFrame.strokes = [];
+    specificationFrame.clipsContent = false;
+
+    if (sections.containers) {
+      var containersSection = await createContainersSection(
+        spec,
+        root,
+        designTokens,
+        sections
+      );
+
+      var specSection = await createSpecSection(containersSection);
+      specificationFrame.appendChild(specSection);
+      stretchInParent(specSection);
+    }
+
+    if (sections.anatomy) {
+      var propertyMetadata = await AnatomyGenerator.getComponentPropertyMetadata(
+        root
+      );
+
+      var anatomyOptions = await AnatomyGenerator.loadFonts({
+        fontRegular: activeFontRegular,
+        fontBold: activeFontBold,
+      });
+
+      anatomyOptions.componentPropertyMetadata = propertyMetadata;
+      anatomyOptions.useComponentPropertyNames = true;
+
+      var anatomyFrame = AnatomyGenerator.createAnatomyFrame({
+        sourceNode: root,
+        title: 'Anatomy',
+        options: anatomyOptions,
+      });
+
+      var anatomySection = await createAnatomySection(anatomyFrame);
+      specificationFrame.appendChild(anatomySection);
+      stretchInParent(anatomySection);
+    }
+
+    if (specificationFrame.children.length === 0) {
+      var placeholder = await createTextNode(
+        'Не выбраны блоки для генерации.',
+        {
+          name: 'Empty specification message',
+          fontName: activeFontRegular,
+          fontSize: 14,
+          lineHeight: { unit: 'PERCENT', value: 130 },
+          fills: [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }],
+        }
+      );
+      specificationFrame.appendChild(placeholder);
+      stretchInParent(placeholder);
+    }
+
+    specificationFrame.x = root.x + root.width + 120;
+    specificationFrame.y = root.y;
+
+    figma.currentPage.appendChild(specificationFrame);
+
+    figma.currentPage.selection = [specificationFrame];
+    figma.viewport.scrollAndZoomIntoView([specificationFrame]);
+
+    figma.ui.postMessage({
+      type: 'SPECIFICATION_BUILT',
+      payload: {
+        name: specificationFrame.name,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    figma.ui.postMessage({
+      type: 'ERROR',
+      payload: {
+        message:
+          'Не удалось собрать спецификацию. Проверьте консоль плагина.',
       },
     });
   }
@@ -3634,7 +3831,7 @@ async function generateAnatomy() {
 
 figma.showUI(typeof __html__ !== 'undefined' ? __html__ : '', {
   width: 520,
-  height: 720,
+  height: 560,
 });
 
 figma.ui.onmessage = function (message) {
@@ -3646,6 +3843,11 @@ figma.ui.onmessage = function (message) {
     payload && typeof payload === 'object' && payload.sections
       ? payload.sections
       : undefined;
+
+  if (message.type === 'BUILD_SPECIFICATION') {
+    void buildSpecification(sectionSettings);
+    return;
+  }
 
   if (message.type === 'GENERATE_SPEC' || message.type === 'GENERATE_MARKDOWN') {
     generateSpec(sectionSettings);

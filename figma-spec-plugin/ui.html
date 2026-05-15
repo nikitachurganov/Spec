@@ -28,30 +28,22 @@
         margin-bottom: 12px;
       }
 
-      .row {
-        margin-bottom: 8px;
+      .card h2 {
+        margin: 0 0 10px;
+        font-size: 13px;
+        font-weight: 600;
       }
 
-      .row:last-child {
-        margin-bottom: 0;
-      }
-
-      .label {
-        font-size: 11px;
-        color: rgba(28, 31, 35, 0.65);
-        margin-bottom: 2px;
-        text-transform: none;
-      }
-
-      .value {
-        font-weight: 500;
-      }
-
-      .actions {
+      .checkbox-row {
         display: flex;
         gap: 8px;
-        flex-wrap: wrap;
-        margin-bottom: 12px;
+        align-items: center;
+        min-height: 28px;
+        cursor: pointer;
+      }
+
+      .checkbox-row span {
+        user-select: none;
       }
 
       button {
@@ -75,20 +67,6 @@
         border-color: #137ff4;
       }
 
-      textarea {
-        width: 100%;
-        height: 360px;
-        box-sizing: border-box;
-        resize: vertical;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
-          monospace;
-        font-size: 12px;
-        line-height: 1.45;
-        padding: 10px;
-        border-radius: 8px;
-        border: 1px solid rgba(28, 31, 35, 0.12);
-      }
-
       .error {
         display: none;
         border: 1px solid rgba(220, 38, 38, 0.28);
@@ -109,191 +87,94 @@
         color: rgba(28, 31, 35, 0.75);
         min-height: 16px;
       }
-
-      .section-title {
-        font-size: 12px;
-        font-weight: 600;
-        margin-bottom: 8px;
-      }
-
-      .checkbox-row {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        min-height: 28px;
-        cursor: pointer;
-      }
-
-      .checkbox-row span {
-        user-select: none;
-      }
-
-      .card h2 {
-        margin: 0 0 10px;
-        font-size: 13px;
-        font-weight: 600;
-      }
     </style>
   </head>
   <body>
     <h1>Spec Generator</h1>
 
-    <div id="errorBox" class="error"></div>
+    <div id="error" class="error"></div>
 
     <div class="card">
-      <div class="section-title">Selected node</div>
-      <div class="row">
-        <div class="label">Selected node</div>
-        <div class="value" id="selName">—</div>
-      </div>
-      <div class="row">
-        <div class="label">Type</div>
-        <div class="value" id="selType">—</div>
-      </div>
-      <div class="row">
-        <div class="label">Status</div>
-        <div class="value" id="selStatus">unsupported</div>
-      </div>
-    </div>
+      <h2>Блоки спецификации</h2>
 
-    <div class="card">
-      <h2>Sections</h2>
-      <label class="checkbox-row">
-        <input type="checkbox" id="sectionOverview" checked />
-        <span>Общая информация</span>
-      </label>
-      <label class="checkbox-row">
-        <input type="checkbox" id="sectionAnatomy" checked />
-        <span>Анатомия</span>
-      </label>
       <label class="checkbox-row">
         <input type="checkbox" id="sectionContainers" checked />
         <span>Контейнеры</span>
       </label>
+
+      <label class="checkbox-row">
+        <input type="checkbox" id="sectionAnatomy" checked />
+        <span>Анатомия</span>
+      </label>
+    </div>
+
+    <div class="card">
+      <h2>Preview overlays</h2>
+
       <label class="checkbox-row">
         <input type="checkbox" id="showChildOverlays" checked />
         <span>Overlay вложенных элементов</span>
       </label>
+
       <label class="checkbox-row">
         <input type="checkbox" id="showGapOverlays" checked />
         <span>Overlay gap</span>
       </label>
     </div>
 
-    <div class="actions">
-      <button id="btnRefresh" type="button">Refresh selection</button>
-      <button id="btnMarkdown" type="button" class="primary" disabled>Generate Markdown</button>
-      <button id="btnFrames" type="button" class="primary" disabled>Generate Frames</button>
-      <button id="btnAnatomy" type="button" class="primary" disabled>Generate anatomy</button>
-      <button id="btnCopy" type="button" disabled>Copy Markdown</button>
-    </div>
+    <button id="generateButton" type="button" class="primary">
+      Собрать спецификацию
+    </button>
 
-    <div class="section-title">Markdown preview</div>
-    <textarea id="md" readonly spellcheck="false"></textarea>
-    <div id="copyStatus" class="status"></div>
-    <div id="framesStatus" class="status"></div>
-    <div id="anatomyStatus" class="status"></div>
+    <div id="status" class="status"></div>
 
     <script>
       (function () {
         'use strict';
 
-        var selNameEl = document.getElementById('selName');
-        var selTypeEl = document.getElementById('selType');
-        var selStatusEl = document.getElementById('selStatus');
-        var errorBox = document.getElementById('errorBox');
-
-        var btnRefresh = document.getElementById('btnRefresh');
-        var btnMarkdown = document.getElementById('btnMarkdown');
-        var btnFrames = document.getElementById('btnFrames');
-        var btnAnatomy = document.getElementById('btnAnatomy');
-        var btnCopy = document.getElementById('btnCopy');
-
-        var mdEl = document.getElementById('md');
-        var copyStatus = document.getElementById('copyStatus');
-        var framesStatus = document.getElementById('framesStatus');
-        var anatomyStatus = document.getElementById('anatomyStatus');
-
-        var currentMarkdown = '';
-        var supportsSelection = false;
-        var defaultMarkdownLabel = 'Generate Markdown';
-        var defaultFramesLabel = 'Generate Frames';
-        var defaultAnatomyLabel = 'Generate anatomy';
-
-        function postToPlugin(payload) {
-          parent.postMessage({ pluginMessage: payload }, '*');
-        }
-
-        function setError(text) {
-          if (!text) {
-            errorBox.classList.remove('show');
-            errorBox.textContent = '';
-            return;
-          }
-
-          errorBox.textContent = text;
-          errorBox.classList.add('show');
-        }
-
-        function hideError() {
-          setError('');
-        }
+        var errorEl = document.getElementById('error');
+        var generateButton = document.getElementById('generateButton');
+        var statusEl = document.getElementById('status');
 
         function getSectionSettings() {
           return {
-            overview: document.getElementById('sectionOverview').checked,
-            anatomy: document.getElementById('sectionAnatomy').checked,
-            containers: document.getElementById('sectionContainers').checked,
-            childOverlays: document.getElementById('showChildOverlays').checked,
-            gapOverlays: document.getElementById('showGapOverlays').checked,
+            containers: document.getElementById('sectionContainers')
+              ? document.getElementById('sectionContainers').checked
+              : true,
+
+            anatomy: document.getElementById('sectionAnatomy')
+              ? document.getElementById('sectionAnatomy').checked
+              : true,
+
+            childOverlays: document.getElementById('showChildOverlays')
+              ? document.getElementById('showChildOverlays').checked
+              : true,
+
+            gapOverlays: document.getElementById('showGapOverlays')
+              ? document.getElementById('showGapOverlays').checked
+              : true,
           };
         }
 
-        function setGenerateButtonsEnabled(ok) {
-          btnMarkdown.disabled = !ok;
-          btnFrames.disabled = !ok;
-          btnAnatomy.disabled = !ok;
+        function showError(text) {
+          errorEl.textContent = text || '';
+          errorEl.classList.add('show');
         }
 
-        function resetMarkdownButton() {
-          btnMarkdown.textContent = defaultMarkdownLabel;
-          btnMarkdown.disabled = !supportsSelection;
+        function hideError() {
+          errorEl.textContent = '';
+          errorEl.classList.remove('show');
         }
 
-        function resetFramesButton() {
-          btnFrames.textContent = defaultFramesLabel;
-          btnFrames.disabled = !supportsSelection;
+        function showStatus(text) {
+          statusEl.textContent = text || '';
         }
 
-        function resetAnatomyButton() {
-          btnAnatomy.textContent = defaultAnatomyLabel;
-          btnAnatomy.disabled = !supportsSelection;
-        }
-
-        function applySelection(payload) {
-          supportsSelection = payload.supported === true;
-
-          if (payload.selected) {
-            selNameEl.textContent = payload.name || '—';
-            selTypeEl.textContent = payload.nodeType || '—';
-          } else {
-            selNameEl.textContent = '—';
-            selTypeEl.textContent = '—';
-          }
-
-          selStatusEl.textContent = supportsSelection ? 'supported' : 'unsupported';
-
-          resetMarkdownButton();
-          resetFramesButton();
-          resetAnatomyButton();
-          setGenerateButtonsEnabled(supportsSelection);
-
-          if (payload.error) {
-            setError(payload.error);
-            return;
-          }
-
-          hideError();
+        function setGenerating(isGenerating) {
+          generateButton.disabled = isGenerating;
+          generateButton.textContent = isGenerating
+            ? 'Собираю спецификацию...'
+            : 'Собрать спецификацию';
         }
 
         window.addEventListener('message', function (event) {
@@ -301,135 +182,44 @@
           var msg = wrapped && wrapped.pluginMessage;
           if (!msg || typeof msg.type !== 'string') return;
 
-          if (msg.type === 'SELECTION_INFO') {
-            applySelection(msg.payload || {});
-            return;
-          }
-
-          if (msg.type === 'SPEC_GENERATED') {
-            mdEl.value = msg.payload.markdown || '';
-            currentMarkdown = mdEl.value;
-            btnCopy.disabled = currentMarkdown.length === 0;
-
-            resetMarkdownButton();
-            resetFramesButton();
-            resetAnatomyButton();
-            copyStatus.textContent = '';
+          if (msg.type === 'SPECIFICATION_BUILT') {
             hideError();
-            return;
-          }
-
-          if (msg.type === 'FRAMES_GENERATED') {
-            var n = msg.payload && msg.payload.name ? msg.payload.name : '';
-            framesStatus.textContent = n ? 'Frames generated: ' + n : 'Frames generated';
-            window.setTimeout(function () {
-              framesStatus.textContent = '';
-            }, 4000);
-            resetFramesButton();
-            resetMarkdownButton();
-            resetAnatomyButton();
-            hideError();
-            return;
-          }
-
-          if (msg.type === 'ANATOMY_GENERATED') {
-            var an = msg.payload && msg.payload.name ? msg.payload.name : '';
-            anatomyStatus.textContent = an ? 'Anatomy generated: ' + an : 'Anatomy generated';
-            window.setTimeout(function () {
-              anatomyStatus.textContent = '';
-            }, 4000);
-            resetAnatomyButton();
-            resetFramesButton();
-            resetMarkdownButton();
-            hideError();
+            var builtName =
+              msg.payload && msg.payload.name ? msg.payload.name : '';
+            showStatus(
+              builtName
+                ? 'Спецификация собрана: ' + builtName
+                : 'Спецификация собрана'
+            );
+            setGenerating(false);
             return;
           }
 
           if (msg.type === 'ERROR') {
-            setError(msg.payload && msg.payload.message ? msg.payload.message : 'Неизвестная ошибка.');
-            resetMarkdownButton();
-            resetFramesButton();
-            resetAnatomyButton();
+            showError(
+              msg.payload && msg.payload.message
+                ? msg.payload.message
+                : 'Неизвестная ошибка.'
+            );
+            setGenerating(false);
             return;
           }
         });
 
-        btnRefresh.addEventListener('click', function () {
-          postToPlugin({ type: 'REFRESH_SELECTION' });
-        });
-
-        btnMarkdown.addEventListener('click', function () {
+        generateButton.addEventListener('click', function () {
           hideError();
-          framesStatus.textContent = '';
-          anatomyStatus.textContent = '';
-          btnMarkdown.textContent = 'Generating...';
-          btnMarkdown.disabled = true;
-          btnFrames.disabled = true;
-          btnAnatomy.disabled = true;
-          postToPlugin({
-            type: 'GENERATE_SPEC',
-            payload: {
-              sections: getSectionSettings(),
-            },
-          });
-        });
-
-        btnFrames.addEventListener('click', function () {
-          hideError();
-          copyStatus.textContent = '';
-          anatomyStatus.textContent = '';
-          btnFrames.textContent = 'Generating frames...';
-          btnFrames.disabled = true;
-          btnMarkdown.disabled = true;
-          btnAnatomy.disabled = true;
-          postToPlugin({
-            type: 'GENERATE_FRAMES',
-            payload: {
-              sections: getSectionSettings(),
-            },
-          });
-        });
-
-        btnAnatomy.addEventListener('click', function () {
-          hideError();
-          copyStatus.textContent = '';
-          framesStatus.textContent = '';
-          btnAnatomy.textContent = 'Generating anatomy...';
-          btnAnatomy.disabled = true;
-          btnMarkdown.disabled = true;
-          btnFrames.disabled = true;
+          showStatus('');
+          setGenerating(true);
           parent.postMessage(
             {
               pluginMessage: {
-                type: 'GENERATE_ANATOMY',
+                type: 'BUILD_SPECIFICATION',
+                payload: {
+                  sections: getSectionSettings(),
+                },
               },
             },
             '*'
-          );
-        });
-
-        btnCopy.addEventListener('click', function () {
-          var text = currentMarkdown || mdEl.value || '';
-
-          if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
-            setError(
-              'Не удалось скопировать Markdown. Выделите текст вручную и скопируйте его.'
-            );
-            return;
-          }
-
-          navigator.clipboard.writeText(text).then(
-            function () {
-              copyStatus.textContent = 'Copied';
-              window.setTimeout(function () {
-                copyStatus.textContent = '';
-              }, 1500);
-            },
-            function () {
-              setError(
-                'Не удалось скопировать Markdown. Выделите текст вручную и скопируйте его.'
-              );
-            }
           );
         });
       })();
