@@ -184,6 +184,7 @@
       <button id="btnRefresh" type="button">Refresh selection</button>
       <button id="btnMarkdown" type="button" class="primary" disabled>Generate Markdown</button>
       <button id="btnFrames" type="button" class="primary" disabled>Generate Frames</button>
+      <button id="btnAnatomy" type="button" class="primary" disabled>Generate anatomy</button>
       <button id="btnCopy" type="button" disabled>Copy Markdown</button>
     </div>
 
@@ -191,6 +192,7 @@
     <textarea id="md" readonly spellcheck="false"></textarea>
     <div id="copyStatus" class="status"></div>
     <div id="framesStatus" class="status"></div>
+    <div id="anatomyStatus" class="status"></div>
 
     <script>
       (function () {
@@ -204,16 +206,19 @@
         var btnRefresh = document.getElementById('btnRefresh');
         var btnMarkdown = document.getElementById('btnMarkdown');
         var btnFrames = document.getElementById('btnFrames');
+        var btnAnatomy = document.getElementById('btnAnatomy');
         var btnCopy = document.getElementById('btnCopy');
 
         var mdEl = document.getElementById('md');
         var copyStatus = document.getElementById('copyStatus');
         var framesStatus = document.getElementById('framesStatus');
+        var anatomyStatus = document.getElementById('anatomyStatus');
 
         var currentMarkdown = '';
         var supportsSelection = false;
         var defaultMarkdownLabel = 'Generate Markdown';
         var defaultFramesLabel = 'Generate Frames';
+        var defaultAnatomyLabel = 'Generate anatomy';
 
         function postToPlugin(payload) {
           parent.postMessage({ pluginMessage: payload }, '*');
@@ -247,6 +252,7 @@
         function setGenerateButtonsEnabled(ok) {
           btnMarkdown.disabled = !ok;
           btnFrames.disabled = !ok;
+          btnAnatomy.disabled = !ok;
         }
 
         function resetMarkdownButton() {
@@ -257,6 +263,11 @@
         function resetFramesButton() {
           btnFrames.textContent = defaultFramesLabel;
           btnFrames.disabled = !supportsSelection;
+        }
+
+        function resetAnatomyButton() {
+          btnAnatomy.textContent = defaultAnatomyLabel;
+          btnAnatomy.disabled = !supportsSelection;
         }
 
         function applySelection(payload) {
@@ -274,6 +285,7 @@
 
           resetMarkdownButton();
           resetFramesButton();
+          resetAnatomyButton();
           setGenerateButtonsEnabled(supportsSelection);
 
           if (payload.error) {
@@ -301,6 +313,7 @@
 
             resetMarkdownButton();
             resetFramesButton();
+            resetAnatomyButton();
             copyStatus.textContent = '';
             hideError();
             return;
@@ -314,6 +327,20 @@
             }, 4000);
             resetFramesButton();
             resetMarkdownButton();
+            resetAnatomyButton();
+            hideError();
+            return;
+          }
+
+          if (msg.type === 'ANATOMY_GENERATED') {
+            var an = msg.payload && msg.payload.name ? msg.payload.name : '';
+            anatomyStatus.textContent = an ? 'Anatomy generated: ' + an : 'Anatomy generated';
+            window.setTimeout(function () {
+              anatomyStatus.textContent = '';
+            }, 4000);
+            resetAnatomyButton();
+            resetFramesButton();
+            resetMarkdownButton();
             hideError();
             return;
           }
@@ -322,6 +349,7 @@
             setError(msg.payload && msg.payload.message ? msg.payload.message : 'Неизвестная ошибка.');
             resetMarkdownButton();
             resetFramesButton();
+            resetAnatomyButton();
             return;
           }
         });
@@ -333,9 +361,11 @@
         btnMarkdown.addEventListener('click', function () {
           hideError();
           framesStatus.textContent = '';
+          anatomyStatus.textContent = '';
           btnMarkdown.textContent = 'Generating...';
           btnMarkdown.disabled = true;
           btnFrames.disabled = true;
+          btnAnatomy.disabled = true;
           postToPlugin({
             type: 'GENERATE_SPEC',
             payload: {
@@ -347,15 +377,35 @@
         btnFrames.addEventListener('click', function () {
           hideError();
           copyStatus.textContent = '';
+          anatomyStatus.textContent = '';
           btnFrames.textContent = 'Generating frames...';
           btnFrames.disabled = true;
           btnMarkdown.disabled = true;
+          btnAnatomy.disabled = true;
           postToPlugin({
             type: 'GENERATE_FRAMES',
             payload: {
               sections: getSectionSettings(),
             },
           });
+        });
+
+        btnAnatomy.addEventListener('click', function () {
+          hideError();
+          copyStatus.textContent = '';
+          framesStatus.textContent = '';
+          btnAnatomy.textContent = 'Generating anatomy...';
+          btnAnatomy.disabled = true;
+          btnMarkdown.disabled = true;
+          btnFrames.disabled = true;
+          parent.postMessage(
+            {
+              pluginMessage: {
+                type: 'GENERATE_ANATOMY',
+              },
+            },
+            '*'
+          );
         });
 
         btnCopy.addEventListener('click', function () {
