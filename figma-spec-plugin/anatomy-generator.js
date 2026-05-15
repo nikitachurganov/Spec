@@ -3,6 +3,7 @@
 /**
  * Standalone anatomy visualization module for Figma plugins.
  * No import/export — paste or concatenate into main code.
+ * The published plugin loads only code.js; keep it in sync via sync-plugin-code.js after edits here.
  */
 var AnatomyGenerator = (function () {
   var ANATOMY_LAYOUT = {

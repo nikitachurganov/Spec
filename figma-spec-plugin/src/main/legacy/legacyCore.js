@@ -69,7 +69,7 @@ var SPEC_COLORS = {
   /** Фон секций вроде Containers section */
   sectionBg: hexToRgb('#F7F7F7'),
   /** Заголовки блоков Spec / Component anatomy */
-  sectionTitle: hexToRgb('#333333'),
+  sectionTitle: hexToRgb('#1F1F1F'),
   /** Фон обёртки вокруг визуальной анатомии */
   anatomyContainerBg: hexToRgb('#F7F7F7'),
   /** Фон блока Containers section */
@@ -77,8 +77,8 @@ var SPEC_COLORS = {
   pageBg: { r: 0.96, g: 0.96, b: 0.96 },
   cardBg: { r: 1, g: 1, b: 1 },
   containerCardBg: hexToRgb('#FFFFFF'),
-  textPrimary: { r: 0.12, g: 0.12, b: 0.12 },
-  textSecondary: { r: 0.42, g: 0.42, b: 0.42 },
+  textPrimary: hexToRgb('#1F1F1F'),
+  textSecondary: hexToRgb('#4E4E4E'),
   labelText: hexToRgb('#8C8C8C'),
   border: { r: 0.88, g: 0.88, b: 0.88 },
   cardBorder: hexToRgb('#EAE8E8'),
@@ -103,7 +103,7 @@ var SECTION_TITLE_STYLE = {
   color: SPEC_COLORS.sectionTitle,
 };
 
-/** Padding measurer: measure fill #003F8A @ measureOpacity (~60%). */
+/** Padding measurer: measure fill (opacity совпадает с token fallback / effect). */
 var PADDING_OVERLAY_LAYOUT = {
   extraSize: 20,
   overlayItemSpacing: 20,
@@ -111,7 +111,7 @@ var PADDING_OVERLAY_LAYOUT = {
   valueSquareRadius: 8,
   valueSquareGap: 4,
   measureColor: PADDING_OVERLAY_COLOR,
-  measureOpacity: 0.6,
+  measureOpacity: 0.2,
 };
 
 /** Внутренний отступ Padding overlay от обводки до measure fill (px). */
@@ -193,6 +193,7 @@ var SPEC_CARD_LAYOUT = {
   descriptionWidth: 420,
   rowGap: 20,
   previewMinHeight: 160,
+  containerCardContentHeight: 298,
 };
 
 var INNER_ROW_WIDTH =
@@ -296,6 +297,7 @@ var DEFAULT_SECTION_SETTINGS = {
   anatomy: true,
   childOverlays: true,
   gapOverlays: true,
+  useComponentPropertyNames: true,
 };
 
 function normalizeSectionSettings(settings) {
@@ -319,6 +321,11 @@ function normalizeSectionSettings(settings) {
       settings && typeof settings.gapOverlays === 'boolean'
         ? settings.gapOverlays
         : DEFAULT_SECTION_SETTINGS.gapOverlays,
+
+    useComponentPropertyNames:
+      settings && typeof settings.useComponentPropertyNames === 'boolean'
+        ? settings.useComponentPropertyNames
+        : DEFAULT_SECTION_SETTINGS.useComponentPropertyNames,
   };
 }
 
@@ -559,6 +566,7 @@ function createTargetContainerOutline(targetBounds) {
     },
   ];
   outline.strokeWeight = 1;
+  outline.strokeAlign = 'OUTSIDE';
   outline.cornerRadius = 0;
 
   return outline;
@@ -610,7 +618,7 @@ function shouldCreateChildOverlay(node) {
   return true;
 }
 
-function createChildOverlay(child, rootClone) {
+async function createChildOverlay(child, rootClone) {
   if (!shouldCreateChildOverlay(child)) return null;
 
   var bounds = getNodeBoundsRelativeToRoot(child, rootClone);
@@ -642,10 +650,12 @@ function createChildOverlay(child, rootClone) {
   overlay.strokes = [];
   overlay.cornerRadius = 0;
 
+  await tryApplyChildOverlaySemantics(overlay);
+
   return overlay;
 }
 
-function createChildOverlaysForTarget(targetNode, rootClone) {
+async function createChildOverlaysForTarget(targetNode, rootClone) {
   var overlays = [];
 
   if (!nodeHasChildren(targetNode)) return overlays;
@@ -656,15 +666,15 @@ function createChildOverlaysForTarget(targetNode, rootClone) {
     var child = ch[i];
     if (!shouldCreateChildOverlay(child)) continue;
 
-    var co = createChildOverlay(child, rootClone);
+    var co = await createChildOverlay(child, rootClone);
     if (co) overlays.push(co);
   }
 
   return overlays;
 }
 
-function createChildOverlaysForClone(clone) {
-  return createChildOverlaysForTarget(clone, clone);
+async function createChildOverlaysForClone(clone) {
+  return await createChildOverlaysForTarget(clone, clone);
 }
 
 function createZeroPointFrame() {
@@ -717,22 +727,12 @@ function getOverlayItemSpacing(side, bounds) {
   return baseSpacing;
 }
 
-function createMeasureFillFrame(side, bounds) {
+async function createMeasureFillFrame(side, bounds) {
   void side;
 
   var frame = figma.createFrame();
   frame.name = 'Padding measure fill';
-
-  var mColor =
-    SPEC_COLORS.paddingMeasure ||
-    PADDING_OVERLAY_LAYOUT.measureColor;
-
-  var opacity =
-    typeof PADDING_OVERLAY_LAYOUT.measureOpacity === 'number'
-      ? PADDING_OVERLAY_LAYOUT.measureOpacity
-      : 0.6;
-
-  frame.fills = [makeSolidPaintWithOpacity(mColor, opacity)];
+  frame.fills = [];
   frame.strokes = [];
   frame.clipsContent = false;
 
@@ -752,16 +752,15 @@ function createMeasureFillFrame(side, bounds) {
     console.warn('Cannot set layoutAlign STRETCH for measure fill', error);
   }
 
+  await tryApplyPaddingMeasureFillFrame(frame);
+
   return frame;
 }
 
-function createGapMeasureFillFrame(bounds) {
+async function createGapMeasureFillFrame(bounds) {
   var frame = figma.createFrame();
   frame.name = 'Gap measure fill';
-
-  var mColor = SPEC_COLORS.gapMeasure || GAP_OVERLAY_COLOR;
-
-  frame.fills = [makeSolidPaintWithOpacity(mColor, 0.2)];
+  frame.fills = [];
   frame.strokes = [];
   frame.clipsContent = false;
 
@@ -782,13 +781,32 @@ function createGapMeasureFillFrame(bounds) {
     console.warn('Cannot set layoutAlign STRETCH for gap measure fill', error);
   }
 
+  await tryApplyGapMeasureFillFrame(frame);
+
   return frame;
 }
 
-function applyGapOverlayStroke(overlay, orientation) {
+async function applyGapOverlayStroke(overlay, orientation) {
   var strokeColor = SPEC_COLORS.gapStroke || GAP_OVERLAY_COLOR;
+  var strokePaint = { type: 'SOLID', color: strokeColor };
+  var ctxStroke = getSpecBuildStyleContext();
+  if (
+    ctxStroke &&
+    ctxStroke.apply &&
+    ctxStroke.resolver &&
+    typeof ctxStroke.apply.resolveSemanticSolidPaint === 'function'
+  ) {
+    try {
+      strokePaint = await ctxStroke.apply.resolveSemanticSolidPaint(
+        ctxStroke.resolver,
+        'gapStroke'
+      );
+    } catch (eStroke) {
+      console.warn('[StyleResolver] gap overlay stroke paint', eStroke);
+    }
+  }
 
-  overlay.strokes = [{ type: 'SOLID', color: strokeColor }];
+  overlay.strokes = [strokePaint];
 
   try {
     overlay.strokeWeight = 0;
@@ -840,13 +858,30 @@ function applyGapOverlayStroke(overlay, orientation) {
   }
 }
 
-function applyPaddingOverlayStroke(overlay, side) {
+async function applyPaddingOverlayStroke(overlay, side) {
   var strokeColor =
     SPEC_COLORS.paddingStroke ||
     SPEC_COLORS.paddingValueSquare ||
     hexToRgb('#449AFF');
+  var strokePaintPad = { type: 'SOLID', color: strokeColor };
+  var ctxPadStroke = getSpecBuildStyleContext();
+  if (
+    ctxPadStroke &&
+    ctxPadStroke.apply &&
+    ctxPadStroke.resolver &&
+    typeof ctxPadStroke.apply.resolveSemanticSolidPaint === 'function'
+  ) {
+    try {
+      strokePaintPad = await ctxPadStroke.apply.resolveSemanticSolidPaint(
+        ctxPadStroke.resolver,
+        'paddingStroke'
+      );
+    } catch (ePadStroke) {
+      console.warn('[StyleResolver] padding overlay stroke paint', ePadStroke);
+    }
+  }
 
-  overlay.strokes = [{ type: 'SOLID', color: strokeColor }];
+  overlay.strokes = [strokePaintPad];
 
   try {
     overlay.strokeWeight = 0;
@@ -935,6 +970,8 @@ async function createPaddingValueSquare(tokenizedValue) {
   square.strokes = [];
   square.clipsContent = false;
 
+  await tryApplyPaddingValueSquareFill(square);
+
   var text = await createTextNode(valueStr, {
     name: 'Padding value',
     fontName: activeFontRegular,
@@ -944,6 +981,8 @@ async function createPaddingValueSquare(tokenizedValue) {
   });
 
   square.appendChild(text);
+
+  await tryApplyValueSquareLabelInverse(text);
 
   try {
     square.counterAxisSizingMode = 'FIXED';
@@ -1073,6 +1112,8 @@ async function createGapValueSquare(tokenizedGap) {
   square.strokes = [];
   square.clipsContent = false;
 
+  await tryApplyGapValueSquareFill(square);
+
   var text = await createTextNode(valueStr, {
     name: 'Gap value',
     fontName: activeFontRegular,
@@ -1082,6 +1123,8 @@ async function createGapValueSquare(tokenizedGap) {
   });
 
   square.appendChild(text);
+
+  await tryApplyValueSquareLabelInverse(text);
 
   try {
     square.counterAxisSizingMode = 'FIXED';
@@ -1151,7 +1194,7 @@ async function createGapOverlay(bounds, tokenizedGap, direction, options) {
 
   overlay.fills = [];
 
-  applyGapOverlayStroke(overlay, orientation);
+  await applyGapOverlayStroke(overlay, orientation);
 
   try {
     overlay.primaryAxisSizingMode = 'FIXED';
@@ -1159,7 +1202,7 @@ async function createGapOverlay(bounds, tokenizedGap, direction, options) {
   } catch (_gapOs) {}
 
   var zeroPoint = createZeroPointFrame();
-  var measureFill = createGapMeasureFillFrame(normalizedBounds);
+  var measureFill = await createGapMeasureFillFrame(normalizedBounds);
   var valueSquare = await createGapValueSquare(tokenizedGap);
 
   overlay.appendChild(zeroPoint);
@@ -1271,7 +1314,8 @@ async function createPaddingOverlay(side, tokenizedValue, bounds) {
   overlay.fills = [];
 
   applyOverlayPaddingForSide(overlay, side, bounds);
-  applyPaddingOverlayStroke(overlay, side);
+
+  await applyPaddingOverlayStroke(overlay, side);
 
   try {
     overlay.primaryAxisSizingMode = 'FIXED';
@@ -1279,7 +1323,7 @@ async function createPaddingOverlay(side, tokenizedValue, bounds) {
   } catch (_os) {}
 
   var zeroPoint = createZeroPointFrame();
-  var measureFill = createMeasureFillFrame(side, bounds);
+  var measureFill = await createMeasureFillFrame(side, bounds);
   var valueSquare = await createPaddingValueSquare(tv);
 
   overlay.appendChild(zeroPoint);
@@ -1309,16 +1353,18 @@ async function createPreviewUnavailableWrap(messageStr, usableInnerWidth) {
       ? Math.max(40, usableInnerWidth - 4)
       : undefined;
 
-  wrap.appendChild(
-    await createTextNode(String(messageStr), {
-      name: 'Preview unavailable',
-      fontName: activeFontRegular,
-      fontSize: 12,
-      lineHeight: { unit: 'PERCENT', value: 130 },
-      fills: [{ type: 'SOLID', color: SPEC_COLORS.labelText }],
-      width: textW,
-    })
-  );
+  var previewText = await createTextNode(String(messageStr), {
+    name: 'Preview unavailable',
+    fontName: activeFontRegular,
+    fontSize: 12,
+    lineHeight: { unit: 'PERCENT', value: 130 },
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.labelText }],
+    width: textW,
+  });
+
+  await tryApplyLabelTextTertiary(previewText);
+
+  wrap.appendChild(previewText);
 
   return wrap;
 }
@@ -1436,8 +1482,10 @@ async function createPaddingVisualization(
   var targetOutline = createTargetContainerOutline(targetBounds);
   overlayContainer.appendChild(targetOutline);
 
+  await tryApplyTargetOutlineStroke(targetOutline);
+
   if (previewSections.childOverlays !== false) {
-    var childOverlaysList = createChildOverlaysForTarget(targetCloneNode, rootClone);
+    var childOverlaysList = await createChildOverlaysForTarget(targetCloneNode, rootClone);
     var cj;
     for (cj = 0; cj < childOverlaysList.length; cj++) {
       overlayContainer.appendChild(childOverlaysList[cj]);
@@ -1529,7 +1577,7 @@ async function createContainerPreviewCard(container, root, designTokens, section
   applyFillToken(
     card,
     designTokens.colors.cardBackground,
-    SPEC_COLORS.containerCardBg
+    SPEC_COLORS.sectionBg
   );
 
   try {
@@ -1550,6 +1598,8 @@ async function createContainerPreviewCard(container, root, designTokens, section
   try {
     card.clipsContent = false;
   } catch (_clipErr) {}
+
+  await tryApplyContainerPreviewCardTokens(card);
 
   var innerUsable = Math.max(32, previewCardW - padLR * 2);
 
@@ -1630,15 +1680,15 @@ async function createEmptySectionsNotice(designTokens) {
     paddingLeft: 0,
   });
 
-  wrap.appendChild(
-    await createTextNode('Не выбраны информационные блоки для отображения.', {
-      name: 'No sections hint',
-      fontName: activeFontRegular,
-      fontSize: 14,
-      fills: [{ type: 'SOLID', color: SPEC_COLORS.textSecondary }],
-      width: INNER_CONTENT_WIDTH - 8,
-    })
-  );
+  var hintNode = await createTextNode('Не выбраны информационные блоки для отображения.', {
+    name: 'No sections hint',
+    fontName: activeFontRegular,
+    fontSize: 14,
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.textSecondary }],
+    width: INNER_CONTENT_WIDTH - 8,
+  });
+  wrap.appendChild(hintNode);
+  await tryApplyTextSecondary(hintNode);
 
   return wrap;
 }
@@ -3725,7 +3775,7 @@ var AnatomyGenerator = (function () {
     return frame;
   }
 
-  function createAnatomyListRow(item, options) {
+  async function createAnatomyListRow(item, options) {
     var row = figma.createFrame();
     row.name = 'Anatomy list item / ' + item.index;
     row.layoutMode = 'HORIZONTAL';
@@ -3756,6 +3806,9 @@ var AnatomyGenerator = (function () {
       fills: [{ type: 'SOLID', color: listText }],
     });
 
+    await tryApplyTextSecondary(numberText);
+    await tryApplyTextSecondary(nameText);
+
     row.appendChild(numberText);
     row.appendChild(nameText);
 
@@ -3767,7 +3820,7 @@ var AnatomyGenerator = (function () {
     return row;
   }
 
-  function createAnatomyList(items, options) {
+  async function createAnatomyList(items, options) {
     var list = figma.createFrame();
     list.name = 'Anatomy list';
     list.layoutMode = 'VERTICAL';
@@ -3781,7 +3834,8 @@ var AnatomyGenerator = (function () {
 
     var ri;
     for (ri = 0; ri < items.length; ri++) {
-      list.appendChild(createAnatomyListRow(items[ri], options));
+      var row = await createAnatomyListRow(items[ri], options);
+      list.appendChild(row);
     }
 
     var totalH = 0;
@@ -3798,7 +3852,7 @@ var AnatomyGenerator = (function () {
     return list;
   }
 
-  function createAnatomyFrame(params) {
+  async function createAnatomyFrame(params) {
     var sourceNode = params && params.sourceNode;
     if (!sourceNode || typeof sourceNode.clone !== 'function') {
       throw new Error('AnatomyGenerator.createAnatomyFrame: sourceNode must be cloneable.');
@@ -3893,7 +3947,7 @@ var AnatomyGenerator = (function () {
       previewGroup.appendChild(pointer);
     }
 
-    var list = createAnatomyList(items, merged);
+    var list = await createAnatomyList(items, merged);
 
     var anatomyFrame = figma.createFrame();
     anatomyFrame.name = title;
@@ -4217,6 +4271,7 @@ async function createPropertyRow(label, value, designTokens, dim) {
       fills: [{ type: 'SOLID', color: SPEC_COLORS.labelText }],
       width: labelWidth,
     });
+    await tryApplyLabelTextTertiary(labelNode);
     valueNode = await createTextNode(String(value), {
       name: 'Property value',
       fontName: activeFontRegular,
@@ -4225,6 +4280,7 @@ async function createPropertyRow(label, value, designTokens, dim) {
       fills: [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }],
       width: valueWidth,
     });
+    await tryApplyTextPrimary(valueNode);
   } else {
     var dt = designTokens || { textStyles: {} };
     var bodyStyle =
@@ -4246,6 +4302,10 @@ async function createPropertyRow(label, value, designTokens, dim) {
 
     labelNode = await createTextNode(labelText, labelOpts);
 
+    if (!bodyStyle) {
+      await tryApplyTextSecondary(labelNode);
+    }
+
     var valOpts = {
       name: 'Value',
       fontName: activeFontMedium,
@@ -4261,6 +4321,9 @@ async function createPropertyRow(label, value, designTokens, dim) {
     }
 
     valueNode = await createTextNode(String(value), valOpts);
+    if (!bodyStyle) {
+      await tryApplyTextPrimary(valueNode);
+    }
   }
 
   labelNode.resize(labelWidth, labelNode.height);
@@ -4355,6 +4418,10 @@ async function createSpecHeader(spec, designTokens) {
     fills: [{ type: 'SOLID', color: SPEC_COLORS.textSecondary }],
     width: INNER_CONTENT_WIDTH,
   });
+
+  await tryApplyTextPrimary(t1);
+  await tryApplyTextSecondary(t2);
+  await tryApplyTextSecondary(t3);
 
   block.appendChild(t1);
   block.appendChild(t2);
@@ -4486,6 +4553,8 @@ async function createContainerCard(container, index, designTokens) {
   applyFillToken(card, designTokens.colors.cardBackground, SPEC_COLORS.containerCardBg);
   applyStrokeToken(card, designTokens.colors.cardBorder, SPEC_COLORS.cardBorder, 1);
 
+  await tryApplyContainerCardTokens(card);
+
   var heading = createFrameNode('Container card heading', {
     fills: [],
     strokes: [],
@@ -4521,6 +4590,7 @@ async function createContainerCard(container, index, designTokens) {
   };
 
   var title = await createTextNode(String(container.name), titleOpts);
+  await tryApplyTextPrimary(title);
 
   heading.appendChild(title);
   card.appendChild(heading);
@@ -4534,8 +4604,9 @@ async function createContainerCard(container, index, designTokens) {
     fills: [],
     strokes: [],
     layoutMode: 'VERTICAL',
-    primaryAxisSizingMode: 'AUTO',
-    counterAxisSizingMode: 'FIXED',
+    primaryAxisSizingMode: 'FIXED',
+    counterAxisSizingMode: 'AUTO',
+    clipsContent: false,
     itemSpacing: sp.medium,
     paddingTop: sp.xl,
     paddingRight: sp.xl,
@@ -4605,8 +4676,19 @@ async function createContainerCard(container, index, designTokens) {
     stretchChildHorizontal(wb);
   }
 
+  var contentFixedH = SPEC_CARD_LAYOUT.containerCardContentHeight;
+  try {
+    content.layoutSizingHorizontal = 'FILL';
+    content.layoutSizingVertical = 'FIXED';
+  } catch (_csl) {
+    /* ignore */
+  }
+  content.primaryAxisSizingMode = 'FIXED';
+  content.counterAxisSizingMode = 'AUTO';
+  content.clipsContent = false;
+  content.resize(Math.max(1, Math.round(Number(content.width) || outerW)), contentFixedH);
+
   card.appendChild(content);
-  stretchChildHorizontal(content);
 
   return card;
 }
@@ -4633,6 +4715,8 @@ async function createSpecSection(containersSection) {
     lineHeight: SECTION_TITLE_STYLE.lineHeight,
     fills: [{ type: 'SOLID', color: SECTION_TITLE_STYLE.color }],
   });
+
+  await tryApplySectionTitleTokens(title);
 
   containersSection.name = 'Containers section';
 
@@ -4670,6 +4754,8 @@ async function createAnatomySection(anatomyFrame) {
     fills: [{ type: 'SOLID', color: SECTION_TITLE_STYLE.color }],
   });
 
+  await tryApplySectionTitleTokens(title);
+
   var anatomyContainer = createFrameNode('Anatomy container', {
     layoutMode: 'VERTICAL',
     primaryAxisSizingMode: 'AUTO',
@@ -4689,6 +4775,8 @@ async function createAnatomySection(anatomyFrame) {
 
   stretchInParent(anatomyContainer);
 
+  await tryApplyAnatomyContainerTokens(anatomyContainer);
+
   anatomyFrame.name = 'Anatomy';
 
   try {
@@ -4698,6 +4786,8 @@ async function createAnatomySection(anatomyFrame) {
   }
 
   anatomyContainer.appendChild(anatomyFrame);
+
+  await tryApplyAnatomySemanticColors(anatomyFrame);
 
   section.appendChild(title);
   section.appendChild(anatomyContainer);
@@ -4722,6 +4812,8 @@ async function createContainersSection(spec, root, designTokens, sections) {
   });
 
   stretchInParent(section);
+
+  await tryApplyContainersSectionTokens(section);
 
   for (var ck = 0; ck < spec.containers.length; ck++) {
     var brow = await createContainerSpecRow(spec.containers[ck], ck + 1, root, designTokens, sections);
@@ -5073,6 +5165,320 @@ async function generateSpecFrames(sections) {
   }
 }
 
+var SPEC_BUILD_STYLE_CONTEXT_KEY = '__SPEC_BUILD_STYLE_CONTEXT_V1__';
+
+function getSpecBuildStyleContext() {
+  try {
+    if (typeof globalThis === 'undefined') return null;
+    return globalThis[SPEC_BUILD_STYLE_CONTEXT_KEY] || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function tryApplySpecificationFrameTokens(frame) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applySpecificationFrameTokens(frame, ctx.resolver);
+  } catch (e) {
+    console.warn('[StyleResolver] applySpecificationFrameTokens', e);
+  }
+}
+
+async function tryApplySectionTitleTokens(textNode) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applySectionTitleTokens(textNode, ctx.resolver);
+  } catch (e) {
+    console.warn('[StyleResolver] applySectionTitleTokens', e);
+  }
+}
+
+async function tryApplyContainersSectionTokens(frame) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applyContainersSectionTokens(frame, ctx.resolver);
+  } catch (e) {
+    console.warn('[StyleResolver] applyContainersSectionTokens', e);
+  }
+}
+
+async function tryApplyAnatomyContainerTokens(frame) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applyAnatomyContainerTokens(frame, ctx.resolver);
+  } catch (e) {
+    console.warn('[StyleResolver] applyAnatomyContainerTokens', e);
+  }
+}
+
+async function tryApplyContainerCardTokens(frame) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applyContainerCardTokens(frame, ctx.resolver);
+  } catch (e) {
+    console.warn('[StyleResolver] applyContainerCardTokens', e);
+  }
+}
+
+async function tryApplyContainerPreviewCardTokens(frame) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applyContainerPreviewCardTokens(frame, ctx.resolver);
+  } catch (e) {
+    console.warn('[StyleResolver] applyContainerPreviewCardTokens', e);
+  }
+}
+
+async function tryApplyPaddingMeasureFillFrame(frame) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) {
+    var mColor =
+      SPEC_COLORS.paddingMeasure ||
+      PADDING_OVERLAY_LAYOUT.measureColor;
+    var opacity =
+      typeof PADDING_OVERLAY_LAYOUT.measureOpacity === 'number'
+        ? PADDING_OVERLAY_LAYOUT.measureOpacity
+        : 0.2;
+    frame.fills = [makeSolidPaintWithOpacity(mColor, opacity)];
+    return;
+  }
+  try {
+    await ctx.apply.applySemanticEffectFill(
+      frame,
+      'paddingMeasureFill',
+      ctx.resolver
+    );
+  } catch (e) {
+    console.warn('[StyleResolver] padding measure fill', e);
+    var mColor2 =
+      SPEC_COLORS.paddingMeasure ||
+      PADDING_OVERLAY_LAYOUT.measureColor;
+    var opacity2 =
+      typeof PADDING_OVERLAY_LAYOUT.measureOpacity === 'number'
+        ? PADDING_OVERLAY_LAYOUT.measureOpacity
+        : 0.2;
+    frame.fills = [makeSolidPaintWithOpacity(mColor2, opacity2)];
+  }
+}
+
+async function tryApplyGapMeasureFillFrame(frame) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) {
+    frame.fills = [
+      makeSolidPaintWithOpacity(SPEC_COLORS.gapMeasure || GAP_OVERLAY_COLOR, 0.2),
+    ];
+    return;
+  }
+  try {
+    await ctx.apply.applySemanticEffectFill(frame, 'gapMeasureFill', ctx.resolver);
+  } catch (e) {
+    console.warn('[StyleResolver] gap measure fill', e);
+    frame.fills = [
+      makeSolidPaintWithOpacity(SPEC_COLORS.gapMeasure || GAP_OVERLAY_COLOR, 0.2),
+    ];
+  }
+}
+
+async function tryApplyTargetOutlineStroke(node) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applySemanticColorKey(
+      node,
+      'targetOutlineStroke',
+      ctx.resolver,
+      'stroke'
+    );
+    try {
+      node.strokeAlign = 'OUTSIDE';
+    } catch (_sa) {
+      /* ignore */
+    }
+  } catch (e) {
+    console.warn('[StyleResolver] target outline', e);
+  }
+}
+
+async function tryApplyGapValueSquareFill(square) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applySemanticColorKey(
+      square,
+      'gapValueFill',
+      ctx.resolver,
+      'fill'
+    );
+  } catch (e) {
+    console.warn('[StyleResolver] gap value square fill', e);
+  }
+}
+
+async function tryApplyPaddingValueSquareFill(square) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applySemanticColorKey(
+      square,
+      'paddingValueFill',
+      ctx.resolver,
+      'fill'
+    );
+  } catch (e) {
+    console.warn('[StyleResolver] padding value square fill', e);
+  }
+}
+
+async function tryApplyValueSquareLabelInverse(textNode) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applySemanticColorKey(
+      textNode,
+      'textInverse',
+      ctx.resolver,
+      'fill'
+    );
+  } catch (e) {
+    console.warn('[StyleResolver] value square label inverse', e);
+  }
+}
+
+async function tryApplyLabelTextTertiary(textNode) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applySemanticColorKey(
+      textNode,
+      'textTertiary',
+      ctx.resolver,
+      'fill'
+    );
+  } catch (e) {
+    console.warn('[StyleResolver] label tertiary', e);
+  }
+}
+
+async function tryApplyTextPrimary(textNode) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applySemanticColorKey(
+      textNode,
+      'textPrimary',
+      ctx.resolver,
+      'fill'
+    );
+  } catch (e) {
+    console.warn('[StyleResolver] text primary', e);
+  }
+}
+
+async function tryApplyTextSecondary(textNode) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applySemanticColorKey(
+      textNode,
+      'textSecondary',
+      ctx.resolver,
+      'fill'
+    );
+  } catch (e) {
+    console.warn('[StyleResolver] text secondary', e);
+  }
+}
+
+async function tryApplyChildOverlaySemantics(overlay) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  try {
+    await ctx.apply.applySemanticColorKey(
+      overlay,
+      'childOverlayFill',
+      ctx.resolver,
+      'fill'
+    );
+    overlay.strokeWeight = 1;
+    await ctx.apply.applySemanticColorKey(
+      overlay,
+      'childOverlayStroke',
+      ctx.resolver,
+      'stroke'
+    );
+  } catch (e) {
+    console.warn('[StyleResolver] child overlay semantics', e);
+  }
+}
+
+async function tryApplyAnatomySemanticColors(root) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver || typeof root.findAll !== 'function') return;
+  try {
+    var nodes = root.findAll(function (n) {
+      return n.type === 'FRAME' || n.type === 'TEXT';
+    });
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      var name = String(n.name || '');
+      if (n.type === 'FRAME' && name.indexOf('Anatomy marker /') === 0) {
+        await ctx.apply.applySemanticColorKey(
+          n,
+          'anatomyPointerFill',
+          ctx.resolver,
+          'fill'
+        );
+        continue;
+      }
+      if (n.type === 'FRAME' && name.indexOf('Anatomy list marker /') === 0) {
+        await ctx.apply.applySemanticColorKey(
+          n,
+          'anatomyPointerFill',
+          ctx.resolver,
+          'fill'
+        );
+        continue;
+      }
+      if (n.type === 'FRAME' && name.indexOf('Anatomy connector /') === 0) {
+        await ctx.apply.applySemanticColorKey(
+          n,
+          'anatomyConnector',
+          ctx.resolver,
+          'fill'
+        );
+        continue;
+      }
+      if (n.type === 'TEXT' && name.indexOf('Anatomy marker label') === 0) {
+        await ctx.apply.applySemanticColorKey(
+          n,
+          'textInverse',
+          ctx.resolver,
+          'fill'
+        );
+        continue;
+      }
+      if (n.type === 'TEXT' && name.indexOf('Anatomy list marker label') === 0) {
+        await ctx.apply.applySemanticColorKey(
+          n,
+          'textInverse',
+          ctx.resolver,
+          'fill'
+        );
+      }
+    }
+  } catch (e) {
+    console.warn('[StyleResolver] anatomy semantic colors', e);
+  }
+}
+
 async function buildSpecification(sections) {
   sections = normalizeSectionSettings(sections);
   try {
@@ -5125,6 +5531,8 @@ async function buildSpecification(sections) {
     specificationFrame.strokes = [];
     specificationFrame.clipsContent = false;
 
+    await tryApplySpecificationFrameTokens(specificationFrame);
+
     if (sections.containers) {
       var containersSection = await createContainersSection(
         spec,
@@ -5149,9 +5557,9 @@ async function buildSpecification(sections) {
       });
 
       anatomyOptions.componentPropertyMetadata = propertyMetadata;
-      anatomyOptions.useComponentPropertyNames = true;
+      anatomyOptions.useComponentPropertyNames = !!sections.useComponentPropertyNames;
 
-      var anatomyFrame = AnatomyGenerator.createAnatomyFrame({
+      var anatomyFrame = await AnatomyGenerator.createAnatomyFrame({
         sourceNode: root,
         title: 'Anatomy',
         options: anatomyOptions,
@@ -5237,9 +5645,10 @@ async function generateAnatomy() {
     var propertyMetadata = await AnatomyGenerator.getComponentPropertyMetadata(sourceNode);
 
     anatomyOptions.componentPropertyMetadata = propertyMetadata;
-    anatomyOptions.useComponentPropertyNames = true;
+    anatomyOptions.useComponentPropertyNames =
+      DEFAULT_SECTION_SETTINGS.useComponentPropertyNames;
 
-    var anatomyFrame = AnatomyGenerator.createAnatomyFrame({
+    var anatomyFrame = await AnatomyGenerator.createAnatomyFrame({
       sourceNode: sourceNode,
       title: 'Анатомия компонента',
       options: anatomyOptions,
@@ -5268,48 +5677,4 @@ async function generateAnatomy() {
 }
 
 
-// Inlined ui.html when __html__ is missing after clone/import.
-
-// Inlined ui.html when __html__ is missing after clone/import.
-/* PLUGIN_UI_EMBED_BEGIN */
-var PLUGIN_UI_HTML_FALLBACK = "<!DOCTYPE html>\r\n<html lang=\"ru\">\r\n  <head>\r\n    <meta charset=\"UTF-8\" />\r\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\r\n    <title>Spec Generator</title>\r\n    <style>\r\n      body {\r\n        margin: 0;\r\n        padding: 16px;\r\n        font-family: Inter, Arial, sans-serif;\r\n        font-size: 13px;\r\n        color: #1c1f23;\r\n        background: #fff;\r\n      }\r\n\r\n      h1 {\r\n        margin: 0 0 12px;\r\n        font-size: 16px;\r\n        font-weight: 600;\r\n      }\r\n\r\n      .card {\r\n        border: 1px solid #e5e5e5;\r\n        border-radius: 8px;\r\n        background: #fafafa;\r\n        padding: 12px;\r\n        margin-bottom: 12px;\r\n      }\r\n\r\n      .card h2 {\r\n        margin: 0 0 10px;\r\n        font-size: 13px;\r\n        font-weight: 600;\r\n      }\r\n\r\n      .checkbox-row {\r\n        display: flex;\r\n        gap: 8px;\r\n        align-items: center;\r\n        min-height: 28px;\r\n        cursor: pointer;\r\n      }\r\n\r\n      .checkbox-row span {\r\n        user-select: none;\r\n      }\r\n\r\n      button {\r\n        height: 32px;\r\n        padding: 0 12px;\r\n        border-radius: 6px;\r\n        border: 1px solid rgba(28, 31, 35, 0.15);\r\n        background: #f3f4f6;\r\n        font: inherit;\r\n        cursor: pointer;\r\n      }\r\n\r\n      button:disabled {\r\n        opacity: 0.45;\r\n        cursor: not-allowed;\r\n      }\r\n\r\n      .primary {\r\n        background: #137ff4;\r\n        color: #fff;\r\n        border-color: #137ff4;\r\n      }\r\n\r\n      .error {\r\n        display: none;\r\n        border: 1px solid rgba(220, 38, 38, 0.28);\r\n        background: rgba(220, 38, 38, 0.08);\r\n        color: #7f1d1d;\r\n        border-radius: 8px;\r\n        padding: 10px;\r\n        margin-bottom: 12px;\r\n      }\r\n\r\n      .error.show {\r\n        display: block;\r\n      }\r\n\r\n      .status {\r\n        margin-top: 8px;\r\n        font-size: 12px;\r\n        color: rgba(28, 31, 35, 0.75);\r\n        min-height: 16px;\r\n      }\r\n    </style>\r\n  </head>\r\n  <body>\r\n    <h1>Spec Generator</h1>\r\n\r\n    <div id=\"error\" class=\"error\"></div>\r\n\r\n    <div class=\"card\">\r\n      <h2>Блоки спецификации</h2>\r\n\r\n      <label class=\"checkbox-row\">\r\n        <input type=\"checkbox\" id=\"sectionContainers\" checked />\r\n        <span>Контейнеры</span>\r\n      </label>\r\n\r\n      <label class=\"checkbox-row\">\r\n        <input type=\"checkbox\" id=\"sectionAnatomy\" checked />\r\n        <span>Анатомия</span>\r\n      </label>\r\n    </div>\r\n\r\n    <div class=\"card\">\r\n      <h2>Preview overlays</h2>\r\n\r\n      <label class=\"checkbox-row\">\r\n        <input type=\"checkbox\" id=\"showChildOverlays\" checked />\r\n        <span>Overlay вложенных элементов</span>\r\n      </label>\r\n\r\n      <label class=\"checkbox-row\">\r\n        <input type=\"checkbox\" id=\"showGapOverlays\" checked />\r\n        <span>Overlay gap</span>\r\n      </label>\r\n    </div>\r\n\r\n    <button id=\"generateButton\" type=\"button\" class=\"primary\">\r\n      Собрать спецификацию\r\n    </button>\r\n\r\n    <div id=\"status\" class=\"status\"></div>\r\n\r\n    <script>\r\n      (function () {\r\n        'use strict';\r\n\r\n        var errorEl = document.getElementById('error');\r\n        var generateButton = document.getElementById('generateButton');\r\n        var statusEl = document.getElementById('status');\r\n\r\n        function getSectionSettings() {\r\n          return {\r\n            containers: document.getElementById('sectionContainers')\r\n              ? document.getElementById('sectionContainers').checked\r\n              : true,\r\n\r\n            anatomy: document.getElementById('sectionAnatomy')\r\n              ? document.getElementById('sectionAnatomy').checked\r\n              : true,\r\n\r\n            childOverlays: document.getElementById('showChildOverlays')\r\n              ? document.getElementById('showChildOverlays').checked\r\n              : true,\r\n\r\n            gapOverlays: document.getElementById('showGapOverlays')\r\n              ? document.getElementById('showGapOverlays').checked\r\n              : true,\r\n          };\r\n        }\r\n\r\n        function showError(text) {\r\n          errorEl.textContent = text || '';\r\n          errorEl.classList.add('show');\r\n        }\r\n\r\n        function hideError() {\r\n          errorEl.textContent = '';\r\n          errorEl.classList.remove('show');\r\n        }\r\n\r\n        function showStatus(text) {\r\n          statusEl.textContent = text || '';\r\n        }\r\n\r\n        function setGenerating(isGenerating) {\r\n          generateButton.disabled = isGenerating;\r\n          generateButton.textContent = isGenerating\r\n            ? 'Собираю спецификацию...'\r\n            : 'Собрать спецификацию';\r\n        }\r\n\r\n        window.addEventListener('message', function (event) {\r\n          var wrapped = event && event.data;\r\n          var msg = wrapped && wrapped.pluginMessage;\r\n          if (!msg || typeof msg.type !== 'string') return;\r\n\r\n          if (msg.type === 'SPECIFICATION_BUILT') {\r\n            hideError();\r\n            var builtName =\r\n              msg.payload && msg.payload.name ? msg.payload.name : '';\r\n            showStatus(\r\n              builtName\r\n                ? 'Спецификация собрана: ' + builtName\r\n                : 'Спецификация собрана'\r\n            );\r\n            setGenerating(false);\r\n            return;\r\n          }\r\n\r\n          if (msg.type === 'ERROR') {\r\n            showError(\r\n              msg.payload && msg.payload.message\r\n                ? msg.payload.message\r\n                : 'Неизвестная ошибка.'\r\n            );\r\n            setGenerating(false);\r\n            return;\r\n          }\r\n        });\r\n\r\n        generateButton.addEventListener('click', function () {\r\n          hideError();\r\n          showStatus('');\r\n          setGenerating(true);\r\n          parent.postMessage(\r\n            {\r\n              pluginMessage: {\r\n                type: 'BUILD_SPECIFICATION',\r\n                payload: {\r\n                  sections: getSectionSettings(),\r\n                },\r\n              },\r\n            },\r\n            '*'\r\n          );\r\n        });\r\n      })();\r\n    </script>\r\n  </body>\r\n</html>\r\n";
-/* PLUGIN_UI_EMBED_END */
-
-figma.showUI((typeof __html__ !== 'undefined' && __html__) ? __html__ : PLUGIN_UI_HTML_FALLBACK, {
-  width: 520,
-  height: 560,
-});
-
-figma.ui.onmessage = function (message) {
-  if (!message || typeof message.type !== 'string') return;
-
-  var payload = message.payload || {};
-
-  var sectionSettings =
-    payload && typeof payload === 'object' && payload.sections
-      ? payload.sections
-      : undefined;
-
-  if (message.type === 'BUILD_SPECIFICATION') {
-    void buildSpecification(sectionSettings);
-    return;
-  }
-
-  if (message.type === 'GENERATE_SPEC' || message.type === 'GENERATE_MARKDOWN') {
-    generateSpec(sectionSettings);
-  }
-
-  if (message.type === 'GENERATE_FRAMES') {
-    void generateSpecFrames(sectionSettings);
-  }
-
-  if (message.type === 'GENERATE_ANATOMY') {
-    void generateAnatomy();
-  }
-
-  if (message.type === 'REFRESH_SELECTION') sendSelectionInfo();
-};
-
-figma.on('selectionchange', sendSelectionInfo);
-
-sendSelectionInfo();
+export { buildSpecification };

@@ -1,9 +1,9 @@
 {
-  "name": "Component Spec Generator",
+  "name": "Spec Generator",
   "id": "component-spec-generator-dev",
   "api": "1.0.0",
-  "main": "code.js",
-  "ui": "ui.html",
+  "main": "dist/code.js",
+  "ui": "dist/ui.html",
   "editorType": ["figma"],
   "permissions": ["teamlibrary"]
 }
