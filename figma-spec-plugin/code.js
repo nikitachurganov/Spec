@@ -105,9 +105,6 @@ var PADDING_OVERLAY_LAYOUT = {
 /** Внутренний отступ Padding overlay от обводки до measure fill (px). */
 var PADDING_OVERLAY_INSET = 1;
 
-/** Inner padding у preview canvas — запас под absolute value squares у overlay. */
-var PREVIEW_CANVAS_PADDING = 40;
-
 function makeSolidPaintWithOpacity(color, opacity) {
   return {
     type: 'SOLID',
@@ -1495,8 +1492,8 @@ async function createPaddingVisualization(
 async function createContainerPreviewCard(container, root, designTokens, sections) {
   var rad = getDesignRadiusMd(designTokens);
   var previewCardW = getPreviewCardWidth();
-  var padLR = PREVIEW_CANVAS_PADDING;
-  var padTB = 24;
+  var padLR = 120;
+  var padTB = 80;
 
   var card = createFrameNode('Container preview card', {
     fills: [],
@@ -1512,7 +1509,7 @@ async function createContainerPreviewCard(container, root, designTokens, section
     paddingBottom: padTB,
     paddingLeft: padLR,
     counterAxisAlignItems: 'MIN',
-    primaryAxisAlignItems: 'MIN',
+    primaryAxisAlignItems: 'CENTER',
     clipsContent: false,
     effects: SPEC_EFFECTS.cardShadow,
   });
@@ -1527,6 +1524,16 @@ async function createContainerPreviewCard(container, root, designTokens, section
     card.strokes = [];
     card.strokeWeight = 0;
   } catch (_noStroke) {}
+
+  try {
+    card.layoutMode = 'VERTICAL';
+    card.paddingLeft = padLR;
+    card.paddingRight = padLR;
+    card.paddingTop = padTB;
+    card.paddingBottom = padTB;
+    card.primaryAxisAlignItems = 'CENTER';
+    card.counterAxisAlignItems = 'MIN';
+  } catch (_previewPadAlignErr) {}
 
   try {
     card.clipsContent = false;
