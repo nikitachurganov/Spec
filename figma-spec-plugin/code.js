@@ -1,0 +1,3599 @@
+'use strict';
+
+var FONT_PT_SANS_REGULAR = { family: 'PT Sans', style: 'Regular' };
+var FONT_PT_SANS_BOLD = { family: 'PT Sans', style: 'Bold' };
+
+var FONT_REGULAR = { family: 'Inter', style: 'Regular' };
+var FONT_MEDIUM = { family: 'Inter', style: 'Medium' };
+var FONT_BOLD = { family: 'Inter', style: 'Bold' };
+
+var activeFontRegular = FONT_PT_SANS_REGULAR;
+
+var activeFontMedium = FONT_PT_SANS_REGULAR;
+
+var activeFontBold = FONT_PT_SANS_BOLD;
+
+function hexToRgb(hex) {
+  var normalized = String(hex).replace('#', '');
+  var bigint = parseInt(normalized, 16);
+  return {
+    r: ((bigint >> 16) & 255) / 255,
+    g: ((bigint >> 8) & 255) / 255,
+    b: (bigint & 255) / 255,
+  };
+}
+
+/** Цвет заливки/обводки/плашки значения только для Gap overlay (#F34747). */
+var GAP_OVERLAY_COLOR = hexToRgb('#F34747');
+
+/** Цвет padding overlay в preview (#003F8A) */
+var PADDING_OVERLAY_COLOR = hexToRgb('#003F8A');
+
+/** Обводка/заливка child overlay (#FFFFFF — fill 20%, stroke 100%) */
+var CHILD_OVERLAY_COLOR = hexToRgb('#FFFFFF');
+
+var SPEC_LAYOUT = {
+  width: 1120,
+  sectionGap: 24,
+  cardGap: 12,
+  padding: 32,
+  cardPadding: 20,
+  rowGap: 8,
+  smallGap: 4,
+  cornerRadius: 16,
+  cardCornerRadius: 12,
+};
+
+var SPEC_COLORS = {
+  pageBg: { r: 0.96, g: 0.96, b: 0.96 },
+  cardBg: { r: 1, g: 1, b: 1 },
+  containerCardBg: hexToRgb('#FFFFFF'),
+  textPrimary: { r: 0.12, g: 0.12, b: 0.12 },
+  textSecondary: { r: 0.42, g: 0.42, b: 0.42 },
+  labelText: hexToRgb('#8C8C8C'),
+  border: { r: 0.88, g: 0.88, b: 0.88 },
+  cardBorder: hexToRgb('#EAE8E8'),
+  warningBg: { r: 1, g: 0.96, b: 0.86 },
+  warningText: { r: 0.48, g: 0.28, b: 0 },
+  previewCanvasBg: hexToRgb('#F7F7F7'),
+  paddingMeasure: PADDING_OVERLAY_COLOR,
+  paddingOverlay: PADDING_OVERLAY_COLOR,
+  paddingValueSquare: hexToRgb('#449AFF'),
+  paddingStroke: hexToRgb('#449AFF'),
+  childOverlay: CHILD_OVERLAY_COLOR,
+  childOverlayBg: CHILD_OVERLAY_COLOR,
+};
+
+SPEC_COLORS.gapMeasure = GAP_OVERLAY_COLOR;
+SPEC_COLORS.gapValueSquare = GAP_OVERLAY_COLOR;
+SPEC_COLORS.gapStroke = GAP_OVERLAY_COLOR;
+
+/** Padding measurer: measure fill #003F8A @ measureOpacity (~60%). */
+var PADDING_OVERLAY_LAYOUT = {
+  extraSize: 20,
+  overlayItemSpacing: 20,
+  valueSquareSize: 28,
+  valueSquareRadius: 8,
+  valueSquareGap: 4,
+  measureColor: PADDING_OVERLAY_COLOR,
+  measureOpacity: 0.6,
+};
+
+/** Внутренний отступ Padding overlay от обводки до measure fill (px). */
+var PADDING_OVERLAY_INSET = 1;
+
+/** Inner padding у preview canvas — запас под absolute value squares у overlay. */
+var PREVIEW_CANVAS_PADDING = 40;
+
+function makeSolidPaintWithOpacity(color, opacity) {
+  return {
+    type: 'SOLID',
+    color: color,
+    opacity: opacity,
+  };
+}
+
+var SPEC_EFFECTS = {
+  cardShadow: [
+    {
+      type: 'DROP_SHADOW',
+      visible: true,
+      color: { r: 0, g: 0, b: 0, a: 0.1 },
+      offset: { x: 0, y: 1 },
+      radius: 2,
+      spread: 0,
+      blendMode: 'NORMAL',
+    },
+  ],
+};
+
+var LIBRARY_TOKEN_NAMES = {
+  libraries: {
+    typographyAndColors: 'Typography & Colors',
+    radius: 'Typography & Colors/Radius',
+    spaces: 'Typography & Colors/Spaces',
+  },
+  textStyles: {
+    cardHeading: 'desktop/h5',
+    body: 'Body/Paragraph (14px)',
+  },
+  colors: {
+    cardBackground: 'Background/Secondary',
+    cardBorder: 'Stroke/Divider-light',
+    headingDivider: 'Stroke/Divider-light',
+  },
+  radius: {
+    md: 'md',
+    mdFullPath: 'Radius/md',
+  },
+  spaces: {
+    medium: 'medium',
+    mediumFullPath: 'Spaces/medium',
+    xl: 'xl',
+    xlFullPath: 'Spaces/xl',
+  },
+};
+
+function normalizeTokenName(name) {
+  return String(name || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function tokenNameMatches(actualName, expectedNames) {
+  var actual = normalizeTokenName(actualName);
+  var i;
+  for (i = 0; i < expectedNames.length; i++) {
+    var expected = normalizeTokenName(expectedNames[i]);
+    if (!expected) continue;
+    if (actual === expected || actual.endsWith('/' + expected)) return true;
+  }
+  return false;
+}
+
+var CONTENT_WIDTH = SPEC_LAYOUT.width - SPEC_LAYOUT.padding * 2;
+
+var INNER_CONTENT_WIDTH = CONTENT_WIDTH;
+
+var SPEC_CARD_LAYOUT = {
+  descriptionWidth: 420,
+  rowGap: 20,
+  previewMinHeight: 160,
+};
+
+var INNER_ROW_WIDTH =
+  SPEC_LAYOUT.width -
+  SPEC_LAYOUT.padding * 2 -
+  SPEC_LAYOUT.cardPadding * 2;
+
+var PROP_LABEL_WIDTH = 220;
+
+var spacingTokens = {
+  0: 'spacing/semantic/none',
+  2: 'spacing/semantic/3xs',
+  4: 'spacing/semantic/2xs',
+  6: 'spacing/semantic/xs',
+  8: 'spacing/semantic/small',
+  10: 'spacing/semantic/small-plus',
+  12: 'spacing/semantic/medium',
+  16: 'spacing/semantic/large',
+  20: 'spacing/semantic/xl',
+  24: 'spacing/semantic/2xl',
+  28: 'spacing/semantic/3xl',
+  32: 'spacing/semantic/4xl',
+  40: 'spacing/semantic/5xl',
+  48: 'spacing/semantic/6xl',
+  56: 'spacing/semantic/7xl',
+  64: 'spacing/semantic/8xl',
+};
+
+// spacing/semantic/medium = 12px, spacing/semantic/xl = 20px — layout sizes:
+var SPACING_VALUES = {
+  medium: 12,
+  xl: 20,
+};
+
+var RADIUS_VALUES = {
+  md: 12,
+};
+
+var CONTAINER_CARD_LABEL_WIDTH = 144;
+
+function getDesignSpaces(designTokens) {
+  if (
+    designTokens &&
+    designTokens.spaces &&
+    typeof designTokens.spaces.medium === 'number' &&
+    typeof designTokens.spaces.xl === 'number'
+  ) {
+    return { medium: designTokens.spaces.medium, xl: designTokens.spaces.xl };
+  }
+  return { medium: SPACING_VALUES.medium, xl: SPACING_VALUES.xl };
+}
+
+function getDesignRadiusMd(designTokens) {
+  if (
+    designTokens &&
+    designTokens.radius &&
+    typeof designTokens.radius.md === 'number'
+  )
+    return designTokens.radius.md;
+  return RADIUS_VALUES.md;
+}
+
+function containerCardContentInnerWidth(designTokens) {
+  var s = getDesignSpaces(designTokens);
+  return INNER_CONTENT_WIDTH - s.xl * 2;
+}
+
+function containerCardValueColumnWidth(designTokens) {
+  var s = getDesignSpaces(designTokens);
+  return (
+    containerCardContentInnerWidth(designTokens) -
+    CONTAINER_CARD_LABEL_WIDTH -
+    s.medium
+  );
+}
+
+function getPreviewCardWidth() {
+  return (
+    CONTENT_WIDTH -
+    SPEC_CARD_LAYOUT.descriptionWidth -
+    SPEC_CARD_LAYOUT.rowGap
+  );
+}
+
+function descriptionCardContentInnerWidth(designTokens) {
+  var s = getDesignSpaces(designTokens);
+  return SPEC_CARD_LAYOUT.descriptionWidth - s.xl * 2;
+}
+
+function descriptionCardValueColumnWidth(designTokens) {
+  var s = getDesignSpaces(designTokens);
+  return (
+    descriptionCardContentInnerWidth(designTokens) -
+    CONTAINER_CARD_LABEL_WIDTH -
+    s.medium
+  );
+}
+
+var DEFAULT_SECTION_SETTINGS = {
+  overview: true,
+  anatomy: true,
+  containers: true,
+  childOverlays: true,
+  gapOverlays: true,
+};
+
+function normalizeSectionSettings(settings) {
+  return {
+    overview:
+      settings && typeof settings.overview === 'boolean'
+        ? settings.overview
+        : DEFAULT_SECTION_SETTINGS.overview,
+
+    anatomy:
+      settings && typeof settings.anatomy === 'boolean'
+        ? settings.anatomy
+        : DEFAULT_SECTION_SETTINGS.anatomy,
+
+    containers:
+      settings && typeof settings.containers === 'boolean'
+        ? settings.containers
+        : DEFAULT_SECTION_SETTINGS.containers,
+
+    childOverlays:
+      settings && typeof settings.childOverlays === 'boolean'
+        ? settings.childOverlays
+        : DEFAULT_SECTION_SETTINGS.childOverlays,
+
+    gapOverlays:
+      settings && typeof settings.gapOverlays === 'boolean'
+        ? settings.gapOverlays
+        : DEFAULT_SECTION_SETTINGS.gapOverlays,
+  };
+}
+
+function getSectionNumber(counter) {
+  return counter.value++;
+}
+
+function getNodeByIdSafe(id) {
+  try {
+    return figma.getNodeById(id);
+  } catch (error) {
+    console.warn('Cannot get node by id', id, error);
+    return null;
+  }
+}
+
+function canCloneNode(node) {
+  return node && typeof node.clone === 'function';
+}
+
+function getOverlayPaddingSize(value, scale) {
+  var raw = Math.max(0, Number(value) || 0);
+  if (raw === 0) return 0;
+  var factor = typeof scale === 'number' && !isNaN(scale) ? scale : 1;
+  return Math.max(8, raw * factor);
+}
+
+function resizeCloneToFit(clone, maxWidth, maxHeight) {
+  var width = clone.width || 1;
+  var height = clone.height || 1;
+  var scale = Math.min(1, maxWidth / width, maxHeight / height);
+  if (scale < 1 && typeof clone.rescale === 'function') {
+    clone.rescale(scale);
+  }
+  return scale;
+}
+
+var CHILD_OVERLAY_TYPES = {
+  TEXT: true,
+  INSTANCE: true,
+  COMPONENT: true,
+  FRAME: true,
+  RECTANGLE: true,
+  ELLIPSE: true,
+  VECTOR: true,
+  BOOLEAN_OPERATION: true,
+  GROUP: true,
+};
+
+/** Пиксельные поправки child overlay под субпиксельный рендер Figma */
+var CHILD_OVERLAY_OFFSETS = {
+  textY: 0,
+};
+
+function nodeHasChildren(node) {
+  return node && 'children' in node && Array.isArray(node.children);
+}
+
+function getVisibleLayoutChildren(node) {
+  if (!nodeHasChildren(node)) return [];
+
+  return node.children.filter(function (child) {
+    if (!child) return false;
+    if ('visible' in child && child.visible === false) return false;
+    if (child.name && child.name.startsWith('_')) return false;
+    if (child.name && child.name.startsWith('Padding overlay')) return false;
+    if (child.name && child.name.startsWith('Child overlay')) return false;
+    if (child.name && child.name.startsWith('Gap overlay')) return false;
+    if (child.name && child.name.startsWith('Preview /')) return false;
+
+    if (typeof child.width !== 'number' || typeof child.height !== 'number') {
+      return false;
+    }
+
+    if (child.width <= 0 || child.height <= 0) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function getNodeBoundsRelativeToRoot(node, rootNode) {
+  var nodeBox = node && node.absoluteBoundingBox;
+  var rootBox = rootNode && rootNode.absoluteBoundingBox;
+
+  if (
+    nodeBox &&
+    rootBox &&
+    typeof nodeBox.x === 'number' &&
+    typeof nodeBox.y === 'number' &&
+    typeof nodeBox.width === 'number' &&
+    typeof nodeBox.height === 'number' &&
+    typeof rootBox.x === 'number' &&
+    typeof rootBox.y === 'number'
+  ) {
+    return {
+      x: nodeBox.x - rootBox.x,
+      y: nodeBox.y - rootBox.y,
+      width: nodeBox.width,
+      height: nodeBox.height,
+      source: 'absoluteBoundingBox',
+    };
+  }
+
+  return {
+    x: node && typeof node.x === 'number' ? node.x : 0,
+    y: node && typeof node.y === 'number' ? node.y : 0,
+    width: node && typeof node.width === 'number' ? node.width : 0,
+    height: node && typeof node.height === 'number' ? node.height : 0,
+    source: 'local',
+  };
+}
+
+function getGapBoundsBetweenChildren(previousChild, nextChild, rootClone, direction) {
+  var prev = getNodeBoundsRelativeToRoot(previousChild, rootClone);
+  var next = getNodeBoundsRelativeToRoot(nextChild, rootClone);
+
+  if (direction === 'horizontal') {
+    var extra = PADDING_OVERLAY_LAYOUT.extraSize || 20;
+
+    var x = prev.x + prev.width;
+    var width = next.x - x;
+
+    var cloneH =
+      rootClone && typeof rootClone.height === 'number' && !isNaN(rootClone.height)
+        ? rootClone.height
+        : 0;
+    var height = cloneH + extra;
+    var y = cloneH - height;
+
+    return {
+      x: x,
+      y: y,
+      width: width,
+      height: height,
+      orientation: 'vertical',
+    };
+  }
+
+  if (direction === 'vertical') {
+    var y2 = prev.y + prev.height;
+    var height2 = next.y - y2;
+
+    var x2 = Math.min(prev.x, next.x);
+    var right = Math.max(prev.x + prev.width, next.x + next.width);
+    var width2 = right - x2;
+
+    return {
+      x: x2,
+      y: y2,
+      width: width2,
+      height: height2,
+      orientation: 'horizontal',
+    };
+  }
+
+  return null;
+}
+
+function getChildOverlayOffset(child) {
+  if (child && child.type === 'TEXT') {
+    return {
+      x: 0,
+      y: CHILD_OVERLAY_OFFSETS.textY,
+    };
+  }
+
+  return {
+    x: 0,
+    y: 0,
+  };
+}
+
+function shouldCreateChildOverlay(node) {
+  if (!node) return false;
+  if (!CHILD_OVERLAY_TYPES[node.type]) return false;
+  if ('visible' in node && node.visible === false) return false;
+  if (node.name && String(node.name).indexOf('_') === 0) return false;
+
+  if (node.name && String(node.name).indexOf('Padding overlay') === 0) return false;
+  if (node.name && String(node.name).indexOf('Child overlay') === 0) return false;
+  if (node.name && String(node.name).indexOf('Gap overlay') === 0) return false;
+  if (node.name && String(node.name).indexOf('Preview /') === 0) return false;
+
+  var box = node.absoluteBoundingBox;
+
+  var localOk =
+    typeof node.width === 'number' &&
+    typeof node.height === 'number' &&
+    node.width > 0 &&
+    node.height > 0;
+
+  var boxOk =
+    box &&
+    typeof box.width === 'number' &&
+    typeof box.height === 'number' &&
+    box.width > 0 &&
+    box.height > 0;
+
+  if (!localOk && !boxOk) return false;
+
+  return true;
+}
+
+function createChildOverlay(child, rootClone) {
+  if (!shouldCreateChildOverlay(child)) return null;
+
+  var bounds = getNodeBoundsRelativeToRoot(child, rootClone);
+
+  if (bounds.width <= 0 || bounds.height <= 0) return null;
+
+  var offset = getChildOverlayOffset(child);
+
+  var overlay = figma.createFrame();
+  overlay.name = 'Child overlay / ' + String(child.name);
+  overlay.layoutMode = 'NONE';
+  overlay.clipsContent = false;
+
+  var rx =
+    rootClone && typeof rootClone.x === 'number' && !isNaN(rootClone.x) ? rootClone.x : 0;
+
+  var ry =
+    rootClone && typeof rootClone.y === 'number' && !isNaN(rootClone.y) ? rootClone.y : 0;
+
+  overlay.x = rx + bounds.x + offset.x;
+  overlay.y = ry + bounds.y + offset.y;
+
+  overlay.resize(bounds.width, bounds.height);
+
+  overlay.fills = [
+    makeSolidPaintWithOpacity(SPEC_COLORS.childOverlayBg || SPEC_COLORS.childOverlay, 0.2),
+  ];
+
+  overlay.strokes = [];
+  overlay.cornerRadius = 0;
+
+  return overlay;
+}
+
+function createChildOverlaysForClone(clone) {
+  var overlays = [];
+
+  if (!nodeHasChildren(clone)) return overlays;
+
+  var ch = clone.children;
+  var i;
+  for (i = 0; i < ch.length; i++) {
+    var child = ch[i];
+    if (!shouldCreateChildOverlay(child)) continue;
+
+    var co = createChildOverlay(child, clone);
+    if (co) overlays.push(co);
+  }
+
+  return overlays;
+}
+
+function createZeroPointFrame() {
+  var frame = figma.createFrame();
+  frame.name = 'Zero point';
+  frame.fills = [];
+  frame.strokes = [];
+  frame.resize(0, 0);
+  return frame;
+}
+
+function applyOverlayPaddingForSide(overlay, side, bounds) {
+  var inset = PADDING_OVERLAY_INSET || 1;
+
+  overlay.paddingTop = 0;
+  overlay.paddingRight = 0;
+  overlay.paddingBottom = 0;
+  overlay.paddingLeft = 0;
+
+  if (side === 'Left' || side === 'Right') {
+    var bottom = Math.max(0, Number(bounds && bounds.bottomOverlayHeight) || 0);
+
+    overlay.paddingLeft = inset;
+    overlay.paddingRight = inset;
+    overlay.paddingBottom = bottom;
+
+    return;
+  }
+
+  if (side === 'Top' || side === 'Bottom') {
+    overlay.paddingTop = inset;
+    overlay.paddingBottom = inset;
+
+    return;
+  }
+}
+
+function getOverlayItemSpacing(side, bounds) {
+  var baseSpacing = PADDING_OVERLAY_LAYOUT.extraSize || 20;
+
+  if (side === 'Left' || side === 'Right') {
+    var topOverlayHeight = Math.max(
+      0,
+      Number(bounds && bounds.topOverlayHeight) || 0
+    );
+
+    return baseSpacing + topOverlayHeight;
+  }
+
+  return baseSpacing;
+}
+
+function createMeasureFillFrame(side, bounds) {
+  void side;
+
+  var frame = figma.createFrame();
+  frame.name = 'Padding measure fill';
+
+  var mColor =
+    SPEC_COLORS.paddingMeasure ||
+    PADDING_OVERLAY_LAYOUT.measureColor;
+
+  var opacity =
+    typeof PADDING_OVERLAY_LAYOUT.measureOpacity === 'number'
+      ? PADDING_OVERLAY_LAYOUT.measureOpacity
+      : 0.6;
+
+  frame.fills = [makeSolidPaintWithOpacity(mColor, opacity)];
+  frame.strokes = [];
+  frame.clipsContent = false;
+
+  var bw = Math.round(Math.max(1, Number(bounds && bounds.width) || 1));
+  var bh = Math.round(Math.max(1, Number(bounds && bounds.height) || 1));
+  frame.resize(bw, bh);
+
+  try {
+    frame.layoutGrow = 1;
+  } catch (error) {
+    console.warn('Cannot set layoutGrow for measure fill', error);
+  }
+
+  try {
+    frame.layoutAlign = 'STRETCH';
+  } catch (error) {
+    console.warn('Cannot set layoutAlign STRETCH for measure fill', error);
+  }
+
+  return frame;
+}
+
+function createGapMeasureFillFrame(bounds) {
+  var frame = figma.createFrame();
+  frame.name = 'Gap measure fill';
+
+  var mColor = SPEC_COLORS.gapMeasure || GAP_OVERLAY_COLOR;
+
+  frame.fills = [makeSolidPaintWithOpacity(mColor, 0.2)];
+  frame.strokes = [];
+  frame.clipsContent = false;
+
+  frame.resize(
+    Math.max(1, Number(bounds && bounds.width) || 1),
+    Math.max(1, Number(bounds && bounds.height) || 1)
+  );
+
+  try {
+    frame.layoutGrow = 1;
+  } catch (error) {
+    console.warn('Cannot set layoutGrow for gap measure fill', error);
+  }
+
+  try {
+    frame.layoutAlign = 'STRETCH';
+  } catch (error) {
+    console.warn('Cannot set layoutAlign STRETCH for gap measure fill', error);
+  }
+
+  return frame;
+}
+
+function applyGapOverlayStroke(overlay, orientation) {
+  var strokeColor = SPEC_COLORS.gapStroke || GAP_OVERLAY_COLOR;
+
+  overlay.strokes = [{ type: 'SOLID', color: strokeColor }];
+
+  try {
+    overlay.strokeWeight = 0;
+
+    if (orientation === 'vertical') {
+      overlay.strokeTopWeight = 0;
+      overlay.strokeBottomWeight = 0;
+      overlay.strokeLeftWeight = 1;
+      overlay.strokeRightWeight = 1;
+      return;
+    }
+
+    if (orientation === 'horizontal') {
+      overlay.strokeTopWeight = 1;
+      overlay.strokeBottomWeight = 1;
+      overlay.strokeLeftWeight = 0;
+      overlay.strokeRightWeight = 0;
+      return;
+    }
+  } catch (error) {
+    console.warn('Partial stroke weights are not available for gap overlay.', error);
+
+    try {
+      overlay.strokeWeight = 1;
+
+      if (orientation === 'vertical') {
+        overlay.strokeTopWeight = 0;
+        overlay.strokeBottomWeight = 0;
+        overlay.strokeLeftWeight = 1;
+        overlay.strokeRightWeight = 1;
+        return;
+      }
+
+      if (orientation === 'horizontal') {
+        overlay.strokeLeftWeight = 0;
+        overlay.strokeRightWeight = 0;
+        overlay.strokeTopWeight = 1;
+        overlay.strokeBottomWeight = 1;
+        return;
+      }
+    } catch (error2) {
+      console.warn(
+        'Partial stroke weights are not available for gap overlay, fallback to full stroke.',
+        error2
+      );
+
+      overlay.strokeWeight = 1;
+    }
+  }
+}
+
+function applyPaddingOverlayStroke(overlay, side) {
+  var strokeColor =
+    SPEC_COLORS.paddingStroke ||
+    SPEC_COLORS.paddingValueSquare ||
+    hexToRgb('#449AFF');
+
+  overlay.strokes = [{ type: 'SOLID', color: strokeColor }];
+
+  try {
+    overlay.strokeWeight = 0;
+
+    if (side === 'Top' || side === 'Bottom') {
+      overlay.strokeTopWeight = 1;
+      overlay.strokeBottomWeight = 1;
+      overlay.strokeLeftWeight = 0;
+      overlay.strokeRightWeight = 0;
+      return;
+    }
+
+    if (side === 'Left' || side === 'Right') {
+      overlay.strokeTopWeight = 0;
+      overlay.strokeBottomWeight = 0;
+      overlay.strokeLeftWeight = 1;
+      overlay.strokeRightWeight = 1;
+      return;
+    }
+  } catch (error) {
+    console.warn(
+      'Partial stroke weights are not available for padding overlay, trying strokeWeight preset.',
+      error
+    );
+
+    try {
+      overlay.strokeWeight = 1;
+
+      if (side === 'Top' || side === 'Bottom') {
+        overlay.strokeLeftWeight = 0;
+        overlay.strokeRightWeight = 0;
+        overlay.strokeTopWeight = 1;
+        overlay.strokeBottomWeight = 1;
+        return;
+      }
+
+      if (side === 'Left' || side === 'Right') {
+        overlay.strokeTopWeight = 0;
+        overlay.strokeBottomWeight = 0;
+        overlay.strokeLeftWeight = 1;
+        overlay.strokeRightWeight = 1;
+        return;
+      }
+    } catch (error2) {
+      console.warn(
+        'Partial stroke weights are not available for padding overlay, fallback to full stroke.',
+        error2
+      );
+
+      overlay.strokeWeight = 1;
+    }
+  }
+}
+
+async function createPaddingValueSquare(tokenizedValue) {
+  var rawVal =
+    tokenizedValue && tokenizedValue.value != null
+      ? Number(tokenizedValue.value)
+      : NaN;
+  var valueStr = !isNaN(rawVal) ? String(Math.round(rawVal)) : '—';
+
+  var square = figma.createFrame();
+  square.name = 'Padding value square';
+  square.layoutMode = 'HORIZONTAL';
+  square.primaryAxisAlignItems = 'CENTER';
+  square.counterAxisAlignItems = 'CENTER';
+  square.primaryAxisSizingMode = 'AUTO';
+  square.counterAxisSizingMode = 'FIXED';
+
+  square.paddingLeft = 4;
+  square.paddingRight = 4;
+  square.paddingTop = 0;
+  square.paddingBottom = 0;
+
+  square.itemSpacing = 0;
+
+  square.resize(20, 20);
+  square.cornerRadius = 4;
+
+  square.fills = [
+    {
+      type: 'SOLID',
+      color: SPEC_COLORS.paddingValueSquare || hexToRgb('#449AFF'),
+    },
+  ];
+  square.strokes = [];
+  square.clipsContent = false;
+
+  var text = await createTextNode(valueStr, {
+    name: 'Padding value',
+    fontName: activeFontRegular,
+    fontSize: 12,
+    lineHeight: { unit: 'PERCENT', value: 130 },
+    fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+  });
+
+  square.appendChild(text);
+
+  try {
+    square.counterAxisSizingMode = 'FIXED';
+    square.resize(Math.max(20, square.width), 20);
+  } catch (error) {
+    console.warn('Cannot enforce fixed height for Padding value square', error);
+  }
+
+  return square;
+}
+
+function positionValueSquareForPaddingOverlay(square, overlay, side) {
+  try {
+    square.layoutPositioning = 'ABSOLUTE';
+  } catch (error) {
+    console.warn('Cannot set absolute positioning for value square', error);
+  }
+
+  var gap = PADDING_OVERLAY_LAYOUT.valueSquareGap || 4;
+
+  if (side === 'Top' || side === 'Bottom') {
+    square.x = -square.width - gap;
+    square.y = overlay.height / 2 - square.height / 2;
+    return;
+  }
+
+  if (side === 'Left' || side === 'Right') {
+    square.x = overlay.width / 2 - square.width / 2;
+    square.y = -square.height - gap;
+    return;
+  }
+
+  square.x = -square.width - gap;
+  square.y = -square.height - gap;
+}
+
+function normalizeGapBounds(bounds) {
+  var normalized = {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    orientation: bounds.orientation,
+  };
+
+  var minSize = 8;
+
+  if (
+    bounds.orientation === 'vertical' &&
+    normalized.width > 0 &&
+    normalized.width < minSize
+  ) {
+    var delta = minSize - normalized.width;
+    normalized.x = normalized.x - delta / 2;
+    normalized.width = minSize;
+  }
+
+  if (
+    bounds.orientation === 'horizontal' &&
+    normalized.height > 0 &&
+    normalized.height < minSize
+  ) {
+    var delta2 = minSize - normalized.height;
+    normalized.y = normalized.y - delta2 / 2;
+    normalized.height = minSize;
+  }
+
+  return normalized;
+}
+
+function positionGapValueSquare(square, overlay, orientation) {
+  try {
+    square.layoutPositioning = 'ABSOLUTE';
+  } catch (error) {
+    console.warn('Cannot set absolute positioning for gap value square', error);
+  }
+
+  var gap = PADDING_OVERLAY_LAYOUT.valueSquareGap || 4;
+
+  if (orientation === 'vertical') {
+    square.x = overlay.width / 2 - square.width / 2;
+    square.y = -square.height - gap;
+    return;
+  }
+
+  if (orientation === 'horizontal') {
+    square.x = -square.width - gap;
+    square.y = overlay.height / 2 - square.height / 2;
+    return;
+  }
+
+  square.x = -square.width - gap;
+  square.y = -square.height - gap;
+}
+
+async function createGapValueSquare(tokenizedGap) {
+  var rawVal =
+    tokenizedGap && tokenizedGap.value != null
+      ? Number(tokenizedGap.value)
+      : NaN;
+  var valueStr = !isNaN(rawVal) ? String(Math.round(rawVal)) : '—';
+
+  var square = figma.createFrame();
+  square.name = 'Gap value square';
+  square.layoutMode = 'HORIZONTAL';
+  square.primaryAxisAlignItems = 'CENTER';
+  square.counterAxisAlignItems = 'CENTER';
+  square.primaryAxisSizingMode = 'AUTO';
+  square.counterAxisSizingMode = 'FIXED';
+
+  square.paddingLeft = 4;
+  square.paddingRight = 4;
+  square.paddingTop = 0;
+  square.paddingBottom = 0;
+
+  square.itemSpacing = 0;
+
+  square.resize(20, 20);
+  square.cornerRadius = 4;
+
+  square.fills = [
+    {
+      type: 'SOLID',
+      color: SPEC_COLORS.gapValueSquare || GAP_OVERLAY_COLOR,
+    },
+  ];
+  square.strokes = [];
+  square.clipsContent = false;
+
+  var text = await createTextNode(valueStr, {
+    name: 'Gap value',
+    fontName: activeFontRegular,
+    fontSize: 12,
+    lineHeight: { unit: 'PERCENT', value: 130 },
+    fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+  });
+
+  square.appendChild(text);
+
+  try {
+    square.counterAxisSizingMode = 'FIXED';
+    square.resize(Math.max(20, square.width), 20);
+  } catch (error) {
+    console.warn('Cannot enforce fixed height for Gap value square', error);
+  }
+
+  return square;
+}
+
+async function createGapOverlay(bounds, tokenizedGap, direction, options) {
+  if (!bounds) return null;
+  if (bounds.width <= 0 || bounds.height <= 0) return null;
+
+  var gapNum = Number(tokenizedGap && tokenizedGap.value);
+  if (!tokenizedGap || isNaN(gapNum) || gapNum <= 0) return null;
+
+  var normalizedBounds = normalizeGapBounds(bounds);
+  var orientation = normalizedBounds.orientation || bounds.orientation;
+
+  if (!orientation || (orientation !== 'vertical' && orientation !== 'horizontal')) {
+    return null;
+  }
+
+  if (normalizedBounds.width <= 0 || normalizedBounds.height <= 0) return null;
+
+  var bottomPaddingOverlayHeight = Math.max(
+    0,
+    Number(
+      (options && options.bottomPaddingOverlayHeight) ||
+        (bounds && bounds.bottomPaddingOverlayHeight)
+    ) || 0
+  );
+
+  var overlay = figma.createFrame();
+  overlay.name = 'Gap overlay';
+
+  overlay.layoutMode = orientation === 'vertical' ? 'VERTICAL' : 'HORIZONTAL';
+
+  var baseSpacing = PADDING_OVERLAY_LAYOUT.extraSize || 20;
+
+  if (direction === 'horizontal') {
+    overlay.paddingTop = 0;
+    overlay.paddingRight = 0;
+    overlay.paddingLeft = 0;
+    overlay.paddingBottom = bottomPaddingOverlayHeight;
+    overlay.itemSpacing = baseSpacing + bottomPaddingOverlayHeight;
+  } else {
+    overlay.paddingTop = 0;
+    overlay.paddingRight = 0;
+    overlay.paddingBottom = 0;
+    overlay.paddingLeft = 0;
+    overlay.itemSpacing = baseSpacing;
+  }
+
+  overlay.primaryAxisAlignItems = 'MIN';
+  overlay.counterAxisAlignItems = 'MIN';
+  overlay.clipsContent = false;
+
+  overlay.x = Math.round(Number(normalizedBounds.x) || 0);
+  overlay.y = Math.round(Number(normalizedBounds.y) || 0);
+  overlay.resize(
+    Math.round(Math.max(1, normalizedBounds.width)),
+    Math.round(Math.max(1, normalizedBounds.height))
+  );
+
+  overlay.fills = [];
+
+  applyGapOverlayStroke(overlay, orientation);
+
+  try {
+    overlay.primaryAxisSizingMode = 'FIXED';
+    overlay.counterAxisSizingMode = 'FIXED';
+  } catch (_gapOs) {}
+
+  var zeroPoint = createZeroPointFrame();
+  var measureFill = createGapMeasureFillFrame(normalizedBounds);
+  var valueSquare = await createGapValueSquare(tokenizedGap);
+
+  overlay.appendChild(zeroPoint);
+  overlay.appendChild(measureFill);
+  overlay.appendChild(valueSquare);
+
+  positionGapValueSquare(valueSquare, overlay, orientation);
+
+  return overlay;
+}
+
+async function createGapOverlaysForClone(clone, container, options) {
+  var overlays = [];
+
+  if (!container || !container.spacing || !container.spacing.gap) {
+    return overlays;
+  }
+
+  var tokenizedGap = container.spacing.gap;
+
+  if (!tokenizedGap) {
+    return overlays;
+  }
+
+  var gapNum = Number(tokenizedGap.value);
+  if (isNaN(gapNum) || gapNum <= 0) {
+    return overlays;
+  }
+
+  var direction = container.layout && container.layout.direction;
+
+  if (direction !== 'horizontal' && direction !== 'vertical') {
+    return overlays;
+  }
+
+  var bottomPaddingOverlayHeight = Math.max(
+    0,
+    Number(options && options.bottomPaddingOverlayHeight) || 0
+  );
+
+  var gapOptions = {
+    bottomPaddingOverlayHeight: bottomPaddingOverlayHeight,
+  };
+
+  var children = getVisibleLayoutChildren(clone);
+
+  if (children.length < 2) {
+    return overlays;
+  }
+
+  var i;
+  for (i = 0; i < children.length - 1; i++) {
+    var previousChild = children[i];
+    var nextChild = children[i + 1];
+
+    var bounds = getGapBoundsBetweenChildren(
+      previousChild,
+      nextChild,
+      clone,
+      direction
+    );
+
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+      continue;
+    }
+
+    bounds.bottomPaddingOverlayHeight = bottomPaddingOverlayHeight;
+
+    var overlay = await createGapOverlay(bounds, tokenizedGap, direction, gapOptions);
+
+    if (overlay) {
+      overlays.push(overlay);
+    }
+  }
+
+  return overlays;
+}
+
+async function createPaddingOverlay(side, tokenizedValue, bounds) {
+  var tv =
+    tokenizedValue && typeof tokenizedValue === 'object' ? tokenizedValue : null;
+
+  if (!tv || Number(tv.value) === 0) return null;
+
+  var bw = Math.round(Math.max(0, Number(bounds && bounds.width) || 0));
+  var bh = Math.round(Math.max(0, Number(bounds && bounds.height) || 0));
+  if (bw <= 0 || bh <= 0) return null;
+
+  var isHoriz = side === 'Top' || side === 'Bottom';
+
+  var overlay = figma.createFrame();
+  overlay.name = 'Padding overlay / ' + String(side);
+  overlay.layoutMode = isHoriz ? 'HORIZONTAL' : 'VERTICAL';
+  overlay.itemSpacing = getOverlayItemSpacing(side, bounds);
+  overlay.primaryAxisAlignItems = 'MIN';
+  overlay.counterAxisAlignItems = 'MIN';
+
+  overlay.clipsContent = false;
+
+  overlay.x = Math.round(Number(bounds.x) || 0);
+  overlay.y = Math.round(Number(bounds.y) || 0);
+  overlay.resize(bw, bh);
+
+  overlay.fills = [];
+
+  applyOverlayPaddingForSide(overlay, side, bounds);
+  applyPaddingOverlayStroke(overlay, side);
+
+  try {
+    overlay.primaryAxisSizingMode = 'FIXED';
+    overlay.counterAxisSizingMode = 'FIXED';
+  } catch (_os) {}
+
+  var zeroPoint = createZeroPointFrame();
+  var measureFill = createMeasureFillFrame(side, bounds);
+  var valueSquare = await createPaddingValueSquare(tv);
+
+  overlay.appendChild(zeroPoint);
+  overlay.appendChild(measureFill);
+  overlay.appendChild(valueSquare);
+
+  positionValueSquareForPaddingOverlay(valueSquare, overlay, side);
+
+  return overlay;
+}
+
+async function createPreviewUnavailableWrap(messageStr, usableInnerWidth) {
+  var wrap = createFrameNode('Padding overlay container', {
+    fills: [],
+    layoutMode: 'VERTICAL',
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'AUTO',
+    clipsContent: false,
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+  });
+
+  var textW =
+    usableInnerWidth != null && usableInnerWidth > 0
+      ? Math.max(40, usableInnerWidth - 4)
+      : undefined;
+
+  wrap.appendChild(
+    await createTextNode(String(messageStr), {
+      name: 'Preview unavailable',
+      fontName: activeFontRegular,
+      fontSize: 12,
+      lineHeight: { unit: 'PERCENT', value: 130 },
+      fills: [{ type: 'SOLID', color: SPEC_COLORS.labelText }],
+      width: textW,
+    })
+  );
+
+  return wrap;
+}
+
+async function createPaddingVisualization(
+  container,
+  sourceNode,
+  usableInnerWidth,
+  designTokens,
+  sections
+) {
+  void designTokens;
+
+  var previewSections = normalizeSectionSettings(sections || {});
+
+  var overlayContainer = figma.createFrame();
+  overlayContainer.name = 'Padding overlay container';
+  overlayContainer.layoutMode = 'NONE';
+  overlayContainer.clipsContent = false;
+  overlayContainer.fills = [];
+  overlayContainer.strokes = [];
+
+  if (!canCloneNode(sourceNode)) {
+    return createPreviewUnavailableWrap('Preview недоступен', usableInnerWidth);
+  }
+
+  var clone = null;
+  try {
+    clone = sourceNode.clone();
+    clone.name = 'Preview / ' + String(sourceNode.name);
+  } catch (cloneErr) {
+    console.warn('Cannot clone source node', cloneErr);
+
+    return createPreviewUnavailableWrap('Preview недоступен', usableInnerWidth);
+  }
+
+  var maxCloneW =
+    usableInnerWidth != null && usableInnerWidth > 0
+      ? Math.max(32, usableInnerWidth)
+      : Math.max(32, getPreviewCardWidth() - 40);
+
+  var maxCloneH = 180;
+  var scale = resizeCloneToFit(clone, maxCloneW, maxCloneH);
+
+  var cw = Math.max(1, Math.round(Number(clone.width) || 1));
+  var ch = Math.max(1, Math.round(Number(clone.height) || 1));
+
+  var pad = container.padding;
+  var top = Math.round(getOverlayPaddingSize(pad.top.value, scale));
+  var right = Math.round(getOverlayPaddingSize(pad.right.value, scale));
+  var bottom = Math.round(getOverlayPaddingSize(pad.bottom.value, scale));
+  var left = Math.round(getOverlayPaddingSize(pad.left.value, scale));
+
+  var topSize = Math.min(top, ch);
+  var bottomSize = Math.min(bottom, ch);
+  var leftSize = Math.min(left, cw);
+  var rightSize = Math.min(right, cw);
+
+  clone.x = 0;
+  clone.y = 0;
+
+  overlayContainer.appendChild(clone);
+  overlayContainer.resize(cw, ch);
+
+  if (previewSections.childOverlays !== false) {
+    var childOverlaysList = createChildOverlaysForClone(clone);
+    var cj;
+    for (cj = 0; cj < childOverlaysList.length; cj++) {
+      overlayContainer.appendChild(childOverlaysList[cj]);
+    }
+  }
+
+  if (previewSections.gapOverlays !== false) {
+    var gapOverlaysList = await createGapOverlaysForClone(clone, container, {
+      bottomPaddingOverlayHeight: bottomSize,
+    });
+    var gi;
+    for (gi = 0; gi < gapOverlaysList.length; gi++) {
+      overlayContainer.appendChild(gapOverlaysList[gi]);
+    }
+  }
+
+  var extra = PADDING_OVERLAY_LAYOUT.extraSize || 20;
+
+  var oTop = await createPaddingOverlay('Top', pad.top, {
+    x: -extra,
+    y: 0,
+    width: cw + extra,
+    height: topSize,
+  });
+
+  var oRight = await createPaddingOverlay('Right', pad.right, {
+    x: cw - rightSize,
+    y: -extra,
+    width: rightSize,
+    height: ch + extra,
+    topOverlayHeight: topSize,
+    bottomOverlayHeight: bottomSize,
+  });
+
+  var oBottom = await createPaddingOverlay('Bottom', pad.bottom, {
+    x: -extra,
+    y: ch - bottomSize,
+    width: cw + extra,
+    height: bottomSize,
+  });
+
+  var oLeft = await createPaddingOverlay('Left', pad.left, {
+    x: 0,
+    y: -extra,
+    width: leftSize,
+    height: ch + extra,
+    topOverlayHeight: topSize,
+    bottomOverlayHeight: bottomSize,
+  });
+
+  var hasOverlay = !!(oTop || oRight || oBottom || oLeft);
+
+  if (oTop) overlayContainer.appendChild(oTop);
+  if (oRight) overlayContainer.appendChild(oRight);
+  if (oBottom) overlayContainer.appendChild(oBottom);
+  if (oLeft) overlayContainer.appendChild(oLeft);
+
+  if (!hasOverlay) {
+    var emptyLabel = await createTextNode('Padding отсутствует', {
+      name: 'No padding label',
+      fontName: activeFontRegular,
+      fontSize: 12,
+      lineHeight: { unit: 'PERCENT', value: 130 },
+      fills: [{ type: 'SOLID', color: SPEC_COLORS.labelText }],
+    });
+
+    emptyLabel.x = 0;
+    emptyLabel.y = ch + 8;
+
+    overlayContainer.appendChild(emptyLabel);
+
+    overlayContainer.resize(
+      Math.round(Math.max(cw, emptyLabel.width)),
+      Math.round(ch + emptyLabel.height + 8)
+    );
+  }
+
+  return overlayContainer;
+}
+
+async function createContainerPreviewCard(container, root, designTokens, sections) {
+  var rad = getDesignRadiusMd(designTokens);
+  var previewCardW = getPreviewCardWidth();
+  var previewPad = PREVIEW_CANVAS_PADDING;
+
+  var card = createFrameNode('Container preview card', {
+    fills: [],
+    strokes: [],
+    layoutMode: 'VERTICAL',
+    itemSpacing: 0,
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+    width: previewCardW,
+    cornerRadius: rad,
+    paddingTop: previewPad,
+    paddingRight: previewPad,
+    paddingBottom: previewPad,
+    paddingLeft: previewPad,
+    counterAxisAlignItems: 'CENTER',
+    primaryAxisAlignItems: 'CENTER',
+    clipsContent: false,
+  });
+
+  applyFillToken(
+    card,
+    designTokens.colors.cardBackground,
+    SPEC_COLORS.containerCardBg
+  );
+
+  applyStrokeToken(card, designTokens.colors.cardBorder, SPEC_COLORS.cardBorder, 1);
+
+  var sourceNode = getNodeByIdSafe(container.id) || root;
+
+  var innerUsable = Math.max(32, previewCardW - previewPad * 2);
+
+  var viz = await createPaddingVisualization(
+    container,
+    sourceNode,
+    innerUsable,
+    designTokens,
+    sections
+  );
+
+  card.appendChild(viz);
+
+  return card;
+}
+
+async function createContainerSpecRow(container, index, root, designTokens, sections) {
+  void index;
+
+  var row = createFrameNode('Container spec row', {
+    fills: [],
+    layoutMode: 'HORIZONTAL',
+    itemSpacing: SPEC_CARD_LAYOUT.rowGap,
+    strokes: [],
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+    width: CONTENT_WIDTH,
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+    counterAxisAlignItems: 'CENTER',
+    primaryAxisAlignItems: 'MIN',
+  });
+
+  row.resize(CONTENT_WIDTH, row.height);
+
+  var descCard = await createContainerCard(container, index, designTokens);
+  row.appendChild(descCard);
+
+  var preview = await createContainerPreviewCard(container, root, designTokens, sections);
+  row.appendChild(preview);
+
+  try {
+    descCard.layoutSizingHorizontal = 'FIXED';
+    descCard.layoutSizingVertical = 'FILL';
+    preview.layoutSizingHorizontal = 'FIXED';
+    preview.layoutSizingVertical = 'FILL';
+  } catch (_stretchErr) {}
+
+  row.resize(CONTENT_WIDTH, Math.max(descCard.height, preview.height));
+
+  return row;
+}
+
+async function createEmptySectionsNotice(designTokens) {
+  void designTokens;
+
+  var wrap = createFrameNode('No sections enabled', {
+    fills: [],
+    layoutMode: 'VERTICAL',
+    itemSpacing: 8,
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+    width: INNER_CONTENT_WIDTH,
+    paddingTop: 16,
+    paddingRight: 0,
+    paddingBottom: 16,
+    paddingLeft: 0,
+  });
+
+  wrap.appendChild(
+    await createTextNode('Не выбраны информационные блоки для отображения.', {
+      name: 'No sections hint',
+      fontName: activeFontRegular,
+      fontSize: 14,
+      fills: [{ type: 'SOLID', color: SPEC_COLORS.textSecondary }],
+      width: INNER_CONTENT_WIDTH - 8,
+    })
+  );
+
+  return wrap;
+}
+
+async function createStandaloneWarningsSection(spec, designTokens, sectionOrdinal) {
+  var title =
+    sectionOrdinal != null
+      ? String(sectionOrdinal) + '. Предупреждения'
+      : 'Предупреждения';
+
+  var section = createFrameNode('Standalone warnings section', {
+    fills: [],
+    layoutMode: 'VERTICAL',
+    itemSpacing: 12,
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+  });
+  section.resize(INNER_CONTENT_WIDTH, section.height);
+
+  section.appendChild(await createSectionTitle(title, designTokens));
+
+  var warnBlock = await createWarningBlock(spec.warnings, null, designTokens);
+
+  section.appendChild(warnBlock);
+  stretchChildHorizontal(warnBlock);
+
+  return section;
+}
+
+function isSupportedNode(node) {
+  var t = node.type;
+  return (
+    t === 'COMPONENT' || t === 'INSTANCE' || t === 'FRAME' || t === 'COMPONENT_SET'
+  );
+}
+
+function getSelectionInfo() {
+  var selection = figma.currentPage.selection;
+
+  if (selection.length === 0) {
+    return {
+      selected: false,
+      supported: false,
+      error: 'Выберите компонент, фрейм или инстанс для генерации спецификации.',
+    };
+  }
+
+  if (selection.length > 1) {
+    return {
+      selected: true,
+      supported: false,
+      error: 'Выберите только один компонент, фрейм или инстанс.',
+    };
+  }
+
+  var node = selection[0];
+  var base = {
+    selected: true,
+    name: node.name,
+    nodeType: node.type,
+  };
+
+  if (!isSupportedNode(node)) {
+    return Object.assign({}, base, {
+      supported: false,
+      error: 'Выбранный тип слоя не поддерживается. Выберите компонент, фрейм или инстанс.',
+    });
+  }
+
+  return Object.assign({}, base, {
+    supported: true,
+  });
+}
+
+function sendSelectionInfo() {
+  figma.ui.postMessage({
+    type: 'SELECTION_INFO',
+    payload: getSelectionInfo(),
+  });
+}
+
+function toSpacingToken(raw) {
+  var v = Math.round(raw);
+  var tok = spacingTokens[v];
+
+  if (tok) {
+    return {
+      value: v,
+      unit: 'px',
+      token: tok,
+      isCustom: false,
+    };
+  }
+
+  return {
+    value: v,
+    unit: 'px',
+    token: 'custom',
+    isCustom: true,
+  };
+}
+
+function getDirection(node) {
+  if (!('layoutMode' in node) || node.layoutMode === undefined) {
+    return 'none';
+  }
+
+  switch (node.layoutMode) {
+    case 'HORIZONTAL':
+      return 'horizontal';
+    case 'VERTICAL':
+      return 'vertical';
+    case 'GRID':
+      return 'grid';
+    case 'NONE':
+      return 'none';
+    default:
+      return 'none';
+  }
+}
+
+function getSizingMode(value) {
+  switch (value) {
+    case 'FILL':
+      return 'fill';
+    case 'HUG':
+      return 'hug';
+    case 'FIXED':
+      return 'fixed';
+    default:
+      return 'unknown';
+  }
+}
+
+function parseSizing(node) {
+  var wMode = 'unknown';
+  var hMode = 'unknown';
+
+  if ('layoutSizingHorizontal' in node && node.layoutSizingHorizontal !== undefined) {
+    wMode = getSizingMode(node.layoutSizingHorizontal);
+  }
+
+  if ('layoutSizingVertical' in node && node.layoutSizingVertical !== undefined) {
+    hMode = getSizingMode(node.layoutSizingVertical);
+  }
+
+  return {
+    width: { mode: wMode, value: Math.round(node.width) },
+    height: { mode: hMode, value: Math.round(node.height) },
+  };
+}
+
+function parsePadding(node) {
+  function padSide(prop) {
+    if (prop in node && typeof node[prop] === 'number') return toSpacingToken(node[prop]);
+    return toSpacingToken(0);
+  }
+
+  return {
+    top: padSide('paddingTop'),
+    right: padSide('paddingRight'),
+    bottom: padSide('paddingBottom'),
+    left: padSide('paddingLeft'),
+  };
+}
+
+function parseSpacing(node) {
+  if (
+    !('layoutMode' in node) ||
+    node.layoutMode === undefined ||
+    node.layoutMode === 'NONE'
+  ) {
+    return { source: 'none' };
+  }
+
+  var out = {
+    source: 'auto-layout',
+  };
+
+  if ('itemSpacing' in node && typeof node.itemSpacing === 'number') {
+    out.gap = toSpacingToken(node.itemSpacing);
+  }
+
+  if ('counterAxisSpacing' in node && typeof node.counterAxisSpacing === 'number') {
+    out.rowGap = toSpacingToken(node.counterAxisSpacing);
+  }
+
+  return out;
+}
+
+function pathJoin(parts) {
+  return parts.join(' / ');
+}
+
+function parseContainers(root) {
+  var containers = [];
+
+  function walk(node, parts) {
+    if (isSupportedNode(node)) {
+      var dir = getDirection(node);
+      var layout = {
+        direction: dir,
+        wrap:
+          'layoutWrap' in node && node.layoutWrap !== undefined
+            ? node.layoutWrap === 'WRAP'
+            : false,
+      };
+
+      if ('primaryAxisAlignItems' in node && node.primaryAxisAlignItems !== undefined) {
+        layout.primaryAxisAlignment = String(node.primaryAxisAlignItems);
+      }
+
+      if ('counterAxisAlignItems' in node && node.counterAxisAlignItems !== undefined) {
+        layout.counterAxisAlignment = String(node.counterAxisAlignItems);
+      }
+
+      var padding = parsePadding(node);
+      var spacing = parseSpacing(node);
+
+      var childNames = [];
+      if ('children' in node && node.children && node.children.length) {
+        for (var ci = 0; ci < node.children.length; ci++) {
+          childNames.push(node.children[ci].name);
+        }
+      }
+
+      var warnings = [];
+
+      if (dir === 'none') {
+        warnings.push(
+          'Контейнер не использует Auto Layout. Padding и spacing могут быть неполными.'
+        );
+      }
+
+      var hasCustomSpacing =
+        padding.top.isCustom ||
+        padding.right.isCustom ||
+        padding.bottom.isCustom ||
+        padding.left.isCustom ||
+        !!(spacing.gap && spacing.gap.isCustom) ||
+        !!(spacing.rowGap && spacing.rowGap.isCustom);
+
+      if (hasCustomSpacing) {
+        warnings.push('Некоторые spacing-значения не совпадают с токенами.');
+      }
+
+      containers.push({
+        id: node.id,
+        name: node.name,
+        path: pathJoin(parts),
+        type: node.type,
+        layout: layout,
+        sizing: parseSizing(node),
+        padding: padding,
+        spacing: spacing,
+        children: childNames,
+        warnings: warnings,
+      });
+    }
+
+    if (!('children' in node) || !node.children || !node.children.length) return;
+
+    for (var i = 0; i < node.children.length; i++) {
+      var ch = node.children[i];
+      walk(ch, parts.concat([ch.name]));
+    }
+  }
+
+  walk(root, [root.name]);
+  return containers;
+}
+
+function parseAnatomy(root) {
+  var items = [
+    {
+      id: root.id,
+      name: 'Container',
+      type: root.type,
+      required: true,
+      description: 'Основной контейнер компонента.',
+    },
+  ];
+
+  function shouldSkip(child) {
+    if (child.visible === false) return true;
+    if (child.name && child.name.charAt(0) === '_') return true;
+    switch (child.type) {
+      case 'VECTOR':
+      case 'BOOLEAN_OPERATION':
+      case 'LINE':
+      case 'ELLIPSE':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  function optionalFromName(nm) {
+    var s = String(nm || '').toLowerCase();
+    if (s.indexOf('optional') !== -1 || s.indexOf('slot') !== -1) return true;
+    return false;
+  }
+
+  function desc(child) {
+    switch (child.type) {
+      case 'TEXT':
+        return 'Текстовый элемент внутри компонента.';
+      case 'FRAME':
+        return 'Контейнер или структурная область компонента.';
+      case 'INSTANCE':
+        return 'Вложенный экземпляр компонента.';
+      case 'COMPONENT':
+        return 'Вложенный компонент.';
+      default:
+        return 'Элемент компонента.';
+    }
+  }
+
+  if (!('children' in root) || !root.children || !root.children.length) {
+    return items;
+  }
+
+  for (var i = 0; i < root.children.length; i++) {
+    var ch = root.children[i];
+    if (shouldSkip(ch)) continue;
+
+    items.push({
+      id: ch.id,
+      name: ch.name,
+      type: ch.type,
+      required: optionalFromName(ch.name) === false,
+      description: desc(ch),
+    });
+  }
+
+  return items;
+}
+
+function escapeMarkdownTableCell(value) {
+  return String(value).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
+
+
+function capitalizeFirst(value) {
+  if (!value) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function formatTokenWithValue(tokenizedValue) {
+  if (!tokenizedValue) return '—';
+  var px = tokenizedValue.value + 'px';
+  if (!tokenizedValue.token || tokenizedValue.token === 'custom') {
+    return 'custom (' + px + ')';
+  }
+  return tokenizedValue.token + ' (' + px + ')';
+}
+
+function formatDirection(direction) {
+  switch (direction) {
+    case 'vertical':
+      return 'Vertical';
+    case 'horizontal':
+      return 'Horizontal';
+    case 'grid':
+      return 'Grid';
+    case 'none':
+      return 'None';
+    default:
+      return 'None';
+  }
+}
+
+function formatSizingModeOnly(sizing) {
+  if (!sizing || !sizing.mode) return 'Unknown';
+  switch (sizing.mode) {
+    case 'fill':
+      return 'Fill';
+    case 'hug':
+      return 'Hug';
+    case 'fixed':
+      return 'Fixed';
+    default:
+      return 'Unknown';
+  }
+}
+
+function formatAlignmentForContainer(container) {
+  var direction = container.layout.direction;
+  var primary = container.layout.primaryAxisAlignment;
+  var counter = container.layout.counterAxisAlignment;
+
+  if (direction === 'none') return '—';
+  if (direction === 'grid') return '—';
+
+  function mapVertical(value) {
+    if (value === 'MIN') return 'top';
+    if (value === 'CENTER') return 'center';
+    if (value === 'MAX') return 'bottom';
+    if (value === 'SPACE_BETWEEN') return 'space between';
+    return '—';
+  }
+
+  function mapHorizontal(value) {
+    if (value === 'MIN') return 'left';
+    if (value === 'CENTER') return 'center';
+    if (value === 'MAX') return 'right';
+    if (value === 'SPACE_BETWEEN') return 'space between';
+    return '—';
+  }
+
+  var verticalPart = '—';
+  var horizontalPart = '—';
+
+  if (direction === 'vertical') {
+    verticalPart = mapVertical(primary);
+    horizontalPart = mapHorizontal(counter);
+  } else if (direction === 'horizontal') {
+    horizontalPart = mapHorizontal(primary);
+    verticalPart = mapVertical(counter);
+  } else {
+    return '—';
+  }
+
+  if (verticalPart === 'center' && horizontalPart === 'center') {
+    return 'Center';
+  }
+
+  if (verticalPart === '—' && horizontalPart === '—') {
+    return '—';
+  }
+
+  if (verticalPart === '—') {
+    return capitalizeFirst(horizontalPart);
+  }
+
+  if (horizontalPart === '—') {
+    return capitalizeFirst(verticalPart);
+  }
+
+  return capitalizeFirst(verticalPart + ' ' + horizontalPart);
+}
+
+function hasAnyPadding(padding) {
+  return Boolean(
+    padding &&
+      padding.top &&
+      padding.right &&
+      padding.bottom &&
+      padding.left &&
+      (padding.top.value !== 0 ||
+        padding.right.value !== 0 ||
+        padding.bottom.value !== 0 ||
+        padding.left.value !== 0)
+  );
+}
+
+function createPaddingRows(container) {
+  var padding = container.padding;
+
+  if (!hasAnyPadding(padding)) {
+    return [{ label: 'Padding', value: 'None' }];
+  }
+
+  return [
+    { label: 'Padding-left', value: formatTokenWithValue(padding.left) },
+    { label: 'Padding-top', value: formatTokenWithValue(padding.top) },
+    { label: 'Padding-right', value: formatTokenWithValue(padding.right) },
+    { label: 'Padding-bottom', value: formatTokenWithValue(padding.bottom) },
+  ];
+}
+
+function formatRequired(required) {
+  return required ? 'Обязательный' : 'Опциональный';
+}
+
+function makeSolidPaint(color) {
+  return { type: 'SOLID', color: color };
+}
+
+async function getLocalTextStyleByNames(names) {
+  try {
+    var styles = await figma.getLocalTextStylesAsync();
+    var i;
+    for (i = 0; i < styles.length; i++) {
+      if (tokenNameMatches(styles[i].name, names)) return styles[i];
+    }
+    return null;
+  } catch (error) {
+    console.warn('Cannot read local text styles', error);
+    return null;
+  }
+}
+
+async function getLibraryTextStyleByNames(names) {
+  try {
+    var tl = figma.teamLibrary;
+    if (!tl) {
+      console.warn('Team Library API is not available.');
+      return null;
+    }
+
+    if (typeof tl.getAvailableLibraryTextStylesAsync === 'function') {
+      var libraryStyles = await tl.getAvailableLibraryTextStylesAsync();
+      var j;
+      for (j = 0; j < libraryStyles.length; j++) {
+        if (tokenNameMatches(libraryStyles[j].name, names)) break;
+      }
+      if (j >= libraryStyles.length) return null;
+      var matched = libraryStyles[j];
+
+      if (typeof figma.importStyleByKeyAsync === 'function' && matched.key)
+        return await figma.importStyleByKeyAsync(matched.key);
+
+      return matched;
+    }
+
+    console.warn(
+      'Library text styles API is not available in this Figma Plugin API version.'
+    );
+    return null;
+  } catch (error) {
+    console.warn('Cannot read library text styles', error);
+    return null;
+  }
+}
+
+async function resolveTextStyle(names, fallbackLabel) {
+  var ls = await getLocalTextStyleByNames(names);
+  if (ls) return { source: 'local', style: ls };
+
+  var lib = await getLibraryTextStyleByNames(names);
+  if (lib) return { source: 'library', style: lib };
+
+  console.warn('Text style not found: ' + fallbackLabel);
+  return { source: 'fallback', style: null };
+}
+
+async function getLocalVariableByNames(names) {
+  try {
+    if (
+      !figma.variables ||
+      typeof figma.variables.getLocalVariablesAsync !== 'function'
+    )
+      return null;
+
+    var variables = await figma.variables.getLocalVariablesAsync();
+    var vi;
+    for (vi = 0; vi < variables.length; vi++) {
+      if (tokenNameMatches(variables[vi].name, names)) return variables[vi];
+    }
+    return null;
+  } catch (error) {
+    console.warn('Cannot read local variables', error);
+    return null;
+  }
+}
+
+async function getLibraryVariableByNames(names) {
+  try {
+    var tl = figma.teamLibrary;
+    if (!tl || !figma.variables) {
+      console.warn('Variables Team Library API is not available.');
+      return null;
+    }
+
+    if (
+      typeof tl.getAvailableLibraryVariableCollectionsAsync !== 'function' ||
+      typeof tl.getVariablesInLibraryCollectionAsync !== 'function' ||
+      typeof figma.variables.importVariableByKeyAsync !== 'function'
+    ) {
+      console.warn('Library variable import API is not available.');
+      return null;
+    }
+
+    var collections = await tl.getAvailableLibraryVariableCollectionsAsync();
+    var ci;
+    for (ci = 0; ci < collections.length; ci++) {
+      var collection = collections[ci];
+      var collectionName = collection.name || '';
+      var vars = await tl.getVariablesInLibraryCollectionAsync(collection.key);
+      var vdx;
+      for (vdx = 0; vdx < vars.length; vdx++) {
+        var d = vars[vdx];
+        var vn = d.name || '';
+        var candA = vn;
+        var candB = collectionName ? collectionName + '/' + vn : vn;
+        if (
+          (tokenNameMatches(candA, names) || tokenNameMatches(candB, names)) &&
+          d.key
+        )
+          return await figma.variables.importVariableByKeyAsync(d.key);
+      }
+    }
+    return null;
+  } catch (error) {
+    console.warn('Cannot read library variables', error);
+    return null;
+  }
+}
+
+async function resolveVariableByNames(names, fallbackLabel) {
+  var lv = await getLocalVariableByNames(names);
+  if (lv) return { source: 'local', variable: lv };
+
+  var gv = await getLibraryVariableByNames(names);
+  if (gv) return { source: 'library', variable: gv };
+
+  console.warn('Variable not found: ' + fallbackLabel);
+  return { source: 'fallback', variable: null };
+}
+
+function getFirstVariableValue(variable) {
+  if (!variable || !variable.valuesByMode) return null;
+  var mids = [];
+  var mk;
+  for (mk in variable.valuesByMode) {
+    if (Object.prototype.hasOwnProperty.call(variable.valuesByMode, mk))
+      mids.push(mk);
+  }
+  if (!mids.length) return null;
+  return variable.valuesByMode[mids[0]];
+}
+
+function isColorValue(value) {
+  return (
+    value &&
+    typeof value.r === 'number' &&
+    typeof value.g === 'number' &&
+    typeof value.b === 'number'
+  );
+}
+
+function isNumberValue(value) {
+  return typeof value === 'number' && !isNaN(value);
+}
+
+function rgbFromNestedValue(raw) {
+  if (isColorValue(raw)) return { r: raw.r, g: raw.g, b: raw.b };
+  if (!raw || typeof raw !== 'object') return null;
+
+  try {
+    if (raw.type === 'VARIABLE_ALIAS' && raw.id) return null;
+  } catch (_eSkip) {}
+
+  if (raw.color) {
+    var c = rgbFromNestedValue(raw.color);
+    if (c) return c;
+  }
+
+  var k;
+  for (k in raw) {
+    if (!Object.prototype.hasOwnProperty.call(raw, k)) continue;
+    var n = rgbFromNestedValue(raw[k]);
+    if (n) return n;
+  }
+
+  return null;
+}
+
+async function resolveColorTokenByNames(names, fallbackColor, fallbackLabel) {
+  var rv = await resolveVariableByNames(names, fallbackLabel);
+  if (rv.variable)
+    return {
+      source: rv.source,
+      variable: rv.variable,
+      paints: null,
+      styleId: null,
+    };
+
+  try {
+    var paintStyles = await figma.getLocalPaintStylesAsync();
+    var pi;
+    for (pi = 0; pi < paintStyles.length; pi++) {
+      var paintStyle = paintStyles[pi];
+      if (!tokenNameMatches(paintStyle.name, names)) continue;
+
+      var plist = [];
+      try {
+        if (paintStyle.paints && paintStyle.paints.length)
+          plist = paintStyle.paints.concat();
+      } catch (_eP) {}
+
+      return {
+        source: 'local-style',
+        variable: null,
+        styleId: paintStyle.id,
+        paints:
+          plist.length > 0 ? plist : [makeSolidPaint(fallbackColor)],
+      };
+    }
+  } catch (error) {
+    console.warn('Cannot read local paint styles', error);
+  }
+
+  return {
+    source: 'fallback',
+    variable: null,
+    styleId: null,
+    paints: [makeSolidPaint(fallbackColor)],
+  };
+}
+
+function createPaintFromColorToken(tokenResult, fallbackColor) {
+  var vbind = tokenResult && tokenResult.variable ? tokenResult.variable : null;
+
+  if (vbind && figma.variables) {
+    var canBind =
+      typeof figma.variables.setBoundVariableForPaint === 'function';
+
+    if (canBind) {
+      try {
+        var bp = figma.variables.setBoundVariableForPaint(
+          makeSolidPaint(fallbackColor),
+          'color',
+          vbind
+        );
+        return bp;
+      } catch (error) {
+        console.warn('Cannot bind variable to paint', error);
+      }
+    }
+
+    var fv = rgbFromNestedValue(getFirstVariableValue(vbind));
+    if (fv) return makeSolidPaint(fv);
+  }
+
+  if (tokenResult && tokenResult.paints && tokenResult.paints.length)
+    return tokenResult.paints[0];
+
+  return makeSolidPaint(fallbackColor);
+}
+
+function applyFillToken(node, tokenResult, fallbackColor) {
+  try {
+    if (tokenResult && tokenResult.styleId && 'fillStyleId' in node) {
+      node.fillStyleId = tokenResult.styleId;
+      return;
+    }
+
+    node.fills = [createPaintFromColorToken(tokenResult, fallbackColor)];
+  } catch (error) {
+    console.warn('Cannot apply fill token', error);
+
+    try {
+      node.fills = [makeSolidPaint(fallbackColor)];
+    } catch (_eB) {}
+  }
+}
+
+function applyStrokeToken(node, tokenResult, fallbackColor, strokeWeight) {
+  strokeWeight = strokeWeight != null ? strokeWeight : 1;
+
+  try {
+    node.strokeWeight = strokeWeight;
+
+    if (tokenResult && tokenResult.styleId && 'strokeStyleId' in node) {
+      node.strokeStyleId = tokenResult.styleId;
+      return;
+    }
+
+    node.strokes = [
+      createPaintFromColorToken(tokenResult, fallbackColor),
+    ];
+  } catch (error) {
+    console.warn('Cannot apply stroke token', error);
+
+    try {
+      node.strokes = [makeSolidPaint(fallbackColor)];
+    } catch (_eS) {}
+  }
+}
+
+async function resolveNumberTokenByNames(names, fallbackValue, fallbackLabel) {
+  var rv = await resolveVariableByNames(names, fallbackLabel);
+  var vr = rv.variable;
+
+  if (vr) {
+    var value = getFirstVariableValue(vr);
+    var n = null;
+
+    if (isNumberValue(value)) n = value;
+    else if (typeof value === 'string') {
+      var p = parseFloat(value);
+      if (!isNaN(p)) n = p;
+    }
+
+    if (n !== null)
+      return {
+        source: rv.source,
+        value: Math.round(n),
+        variable: vr,
+      };
+
+    console.warn('Variable found but value is not number: ' + fallbackLabel);
+  }
+
+  return { source: 'fallback', value: fallbackValue, variable: null };
+}
+
+async function loadSpecDesignTokens() {
+  try {
+    var headingStyleResult = await resolveTextStyle(
+      [
+        LIBRARY_TOKEN_NAMES.textStyles.cardHeading,
+        'Typography & Colors/desktop/h5',
+      ],
+      LIBRARY_TOKEN_NAMES.textStyles.cardHeading
+    );
+
+    var bodyStyleResult = await resolveTextStyle(
+      [
+        LIBRARY_TOKEN_NAMES.textStyles.body,
+        'Typography & Colors/Body/Paragraph (14px)',
+        'Body/paragraph (14px)',
+      ],
+      LIBRARY_TOKEN_NAMES.textStyles.body
+    );
+
+    var cardBackground = await resolveColorTokenByNames(
+      [
+        LIBRARY_TOKEN_NAMES.colors.cardBackground,
+        'Typography & Colors/Background/Secondary',
+        'background/secondary',
+      ],
+      { r: 1, g: 1, b: 1 },
+      LIBRARY_TOKEN_NAMES.colors.cardBackground
+    );
+
+    var cardBorder = await resolveColorTokenByNames(
+      [
+        LIBRARY_TOKEN_NAMES.colors.cardBorder,
+        'Typography & Colors/Stroke/Divider-light',
+        'stroke/divider-light',
+      ],
+      hexToRgb('#EAE8E8'),
+      LIBRARY_TOKEN_NAMES.colors.cardBorder
+    );
+
+    var radiusMd = await resolveNumberTokenByNames(
+      [
+        LIBRARY_TOKEN_NAMES.radius.md,
+        LIBRARY_TOKEN_NAMES.radius.mdFullPath,
+        'Typography & Colors/Radius/md',
+      ],
+      RADIUS_VALUES.md,
+      'Radius/md'
+    );
+
+    var spaceMedium = await resolveNumberTokenByNames(
+      [
+        LIBRARY_TOKEN_NAMES.spaces.medium,
+        LIBRARY_TOKEN_NAMES.spaces.mediumFullPath,
+        'Typography & Colors/Spaces/medium',
+      ],
+      SPACING_VALUES.medium,
+      'Spaces/medium'
+    );
+
+    var spaceXl = await resolveNumberTokenByNames(
+      [
+        LIBRARY_TOKEN_NAMES.spaces.xl,
+        LIBRARY_TOKEN_NAMES.spaces.xlFullPath,
+        'Typography & Colors/Spaces/xl',
+      ],
+      SPACING_VALUES.xl,
+      'Spaces/xl'
+    );
+
+    return {
+      textStyles: {
+        headingStyle: headingStyleResult.style,
+        bodyStyle: bodyStyleResult.style,
+      },
+      colors: {
+        cardBackground: cardBackground,
+        cardBorder: cardBorder,
+        headingDivider: cardBorder,
+      },
+      radius: {
+        md: radiusMd.value,
+      },
+      spaces: {
+        medium: spaceMedium.value,
+        xl: spaceXl.value,
+      },
+    };
+  } catch (error) {
+    console.warn('loadSpecDesignTokens failed:', error);
+
+    var fbDivider = {
+      variable: null,
+      paints: [makeSolidPaint(SPEC_COLORS.cardBorder)],
+      styleId: null,
+    };
+
+    var fbBg = {
+      variable: null,
+      paints: [makeSolidPaint(SPEC_COLORS.containerCardBg)],
+      styleId: null,
+    };
+
+    var fbBd = {
+      variable: null,
+      paints: [makeSolidPaint(SPEC_COLORS.cardBorder)],
+      styleId: null,
+    };
+
+    return {
+      textStyles: { headingStyle: null, bodyStyle: null },
+      colors: {
+        cardBackground: fbBg,
+        cardBorder: fbBd,
+        headingDivider: fbDivider,
+      },
+      radius: { md: RADIUS_VALUES.md },
+      spaces: { medium: SPACING_VALUES.medium, xl: SPACING_VALUES.xl },
+    };
+  }
+}
+
+async function loadSpecFonts() {
+  try {
+    await Promise.all([
+      figma.loadFontAsync(FONT_PT_SANS_REGULAR),
+      figma.loadFontAsync(FONT_PT_SANS_BOLD),
+    ]);
+    activeFontRegular = FONT_PT_SANS_REGULAR;
+    activeFontBold = FONT_PT_SANS_BOLD;
+    activeFontMedium = FONT_PT_SANS_REGULAR;
+    return;
+  } catch (error) {
+    console.warn('PT Sans is not available, trying Inter.', error);
+  }
+
+  try {
+    await Promise.all([
+      figma.loadFontAsync({ family: 'Inter', style: 'Regular' }),
+      figma.loadFontAsync({ family: 'Inter', style: 'Bold' }),
+    ]);
+
+    activeFontRegular = { family: 'Inter', style: 'Regular' };
+    activeFontBold = { family: 'Inter', style: 'Bold' };
+
+    activeFontMedium = FONT_MEDIUM;
+    try {
+      await figma.loadFontAsync(FONT_MEDIUM);
+    } catch (_) {}
+
+    return;
+  } catch (error) {
+    console.warn('Inter is not available, trying Roboto.', error);
+  }
+
+  await Promise.all([
+    figma.loadFontAsync({ family: 'Roboto', style: 'Regular' }),
+    figma.loadFontAsync({ family: 'Roboto', style: 'Bold' }),
+  ]);
+
+  activeFontRegular = { family: 'Roboto', style: 'Regular' };
+  activeFontBold = { family: 'Roboto', style: 'Bold' };
+  activeFontMedium = { family: 'Roboto', style: 'Medium' };
+  try {
+    await figma.loadFontAsync(activeFontMedium);
+  } catch (_) {
+    activeFontMedium = activeFontRegular;
+  }
+}
+
+
+function stretchChildHorizontal(f) {
+  f.layoutSizingHorizontal = 'FILL';
+  if (f.layoutMode && f.layoutMode !== 'NONE') {
+    f.layoutSizingVertical = 'HUG';
+  }
+}
+
+function createFrameNode(name, options) {
+  options = options || {};
+  var f = figma.createFrame();
+  f.name = name;
+  if (options.fills !== undefined) {
+    f.fills = options.fills;
+  }
+  if (options.strokes !== undefined) {
+    f.strokes = options.strokes;
+  }
+  if (options.strokeWeight !== undefined) {
+    f.strokeWeight = options.strokeWeight;
+  }
+  if (options.cornerRadius !== undefined) {
+    f.cornerRadius = options.cornerRadius;
+  }
+  if (options.topLeftRadius !== undefined) {
+    f.topLeftRadius = options.topLeftRadius;
+  }
+  if (options.topRightRadius !== undefined) {
+    f.topRightRadius = options.topRightRadius;
+  }
+  if (options.bottomLeftRadius !== undefined) {
+    f.bottomLeftRadius = options.bottomLeftRadius;
+  }
+  if (options.bottomRightRadius !== undefined) {
+    f.bottomRightRadius = options.bottomRightRadius;
+  }
+  if (options.layoutMode !== undefined) {
+    f.layoutMode = options.layoutMode;
+  }
+  if (options.primaryAxisSizingMode !== undefined) {
+    f.primaryAxisSizingMode = options.primaryAxisSizingMode;
+  }
+  if (options.counterAxisSizingMode !== undefined) {
+    f.counterAxisSizingMode = options.counterAxisSizingMode;
+  }
+  if (options.primaryAxisAlignItems !== undefined) {
+    f.primaryAxisAlignItems = options.primaryAxisAlignItems;
+  }
+  if (options.counterAxisAlignItems !== undefined) {
+    f.counterAxisAlignItems = options.counterAxisAlignItems;
+  }
+  if (options.layoutAlignItems !== undefined) {
+    f.layoutAlignItems = options.layoutAlignItems;
+  }
+  if (options.itemSpacing !== undefined) {
+    f.itemSpacing = options.itemSpacing;
+  }
+  if (options.paddingTop !== undefined) {
+    f.paddingTop = options.paddingTop;
+  }
+  if (options.paddingRight !== undefined) {
+    f.paddingRight = options.paddingRight;
+  }
+  if (options.paddingBottom !== undefined) {
+    f.paddingBottom = options.paddingBottom;
+  }
+  if (options.paddingLeft !== undefined) {
+    f.paddingLeft = options.paddingLeft;
+  }
+  if (options.layoutSizingHorizontal !== undefined) {
+    f.layoutSizingHorizontal = options.layoutSizingHorizontal;
+  }
+  if (options.layoutSizingVertical !== undefined) {
+    f.layoutSizingVertical = options.layoutSizingVertical;
+  }
+  if (options.clipsContent !== undefined) {
+    f.clipsContent = options.clipsContent;
+  }
+  if (options.effects !== undefined) {
+    f.effects = options.effects;
+  }
+  if (options.width != null && options.height != null) {
+    f.resize(options.width, options.height);
+  } else if (options.width != null) {
+    f.resize(options.width, f.height);
+  }
+  return f;
+}
+
+async function createTextNode(text, options) {
+  options = options || {};
+  var raw = text === undefined || text === null ? '' : text;
+  var str = typeof raw === 'string' ? raw : String(raw);
+  var t = figma.createText();
+  t.name = options.name || 'Text';
+
+  var styleApplied = false;
+
+  try {
+    if (options.textStyle && options.textStyle.id) {
+      try {
+        t.textStyleId = options.textStyle.id;
+        await figma.loadFontAsync(t.fontName);
+        styleApplied = true;
+      } catch (styErr) {
+        console.warn('Text style apply failed:', styErr);
+        try {
+          t.textStyleId = '';
+        } catch (_e) {}
+      }
+    }
+  } catch (_e2) {}
+
+  try {
+    if (!styleApplied) {
+      await figma.loadFontAsync(options.fontName || activeFontRegular);
+      t.fontName = options.fontName || activeFontRegular;
+      if (options.fontSize !== undefined && options.fontSize !== null) {
+        t.fontSize = options.fontSize;
+      } else {
+        t.fontSize = 13;
+      }
+      if (options.lineHeight !== undefined && options.lineHeight !== null) {
+        t.lineHeight = options.lineHeight;
+      } else {
+        t.lineHeight = { unit: 'PERCENT', value: 140 };
+      }
+      if (options.fills && options.fills.length) {
+        t.fills = options.fills;
+      } else if (options.fallbackSolidColor) {
+        t.fills = [{ type: 'SOLID', color: options.fallbackSolidColor }];
+      } else {
+        t.fills = [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }];
+      }
+    } else {
+      await figma.loadFontAsync(t.fontName);
+    }
+
+    var toSet = str.length === 0 ? ' ' : str;
+    t.characters = toSet;
+  } catch (charsErr) {
+    console.warn('createTextNode failed:', charsErr);
+    try {
+      await figma.loadFontAsync(options.fontName || activeFontRegular);
+      t.fontName = options.fontName || activeFontRegular;
+      if (options.fontSize !== undefined && options.fontSize !== null) {
+        t.fontSize = options.fontSize;
+      } else {
+        t.fontSize = 13;
+      }
+      if (options.lineHeight !== undefined && options.lineHeight !== null) {
+        t.lineHeight = options.lineHeight;
+      } else {
+        t.lineHeight = { unit: 'PERCENT', value: 140 };
+      }
+      if (options.fills && options.fills.length) {
+        t.fills = options.fills;
+      } else if (options.fallbackSolidColor) {
+        t.fills = [{ type: 'SOLID', color: options.fallbackSolidColor }];
+      } else {
+        t.fills = [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }];
+      }
+      t.characters = str.length === 0 ? ' ' : str;
+    } catch (fatal) {
+      console.error('createTextNode fatal:', fatal);
+    }
+  }
+
+  if (options.width !== undefined && options.width !== null) {
+    t.textAutoResize = 'HEIGHT';
+    t.resize(options.width, t.height);
+  } else {
+    t.textAutoResize = 'WIDTH_AND_HEIGHT';
+  }
+
+  if (options.textAlignHorizontal) {
+    t.textAlignHorizontal = options.textAlignHorizontal;
+  }
+
+  return t;
+}
+
+async function createSectionTitle(title, designTokens) {
+  void designTokens;
+  return await createTextNode(title, {
+    name: 'Section title',
+    fontName: activeFontBold,
+    fontSize: 18,
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }],
+    width: INNER_CONTENT_WIDTH,
+  });
+}
+
+async function createPropertyRow(label, value, designTokens, dim) {
+  dim = dim || {};
+  var rowWidth = dim.rowWidth != null ? dim.rowWidth : INNER_ROW_WIDTH;
+  var labelWidth = dim.labelWidth != null ? dim.labelWidth : PROP_LABEL_WIDTH;
+  var sp = getDesignSpaces(designTokens);
+  var gap = sp.medium;
+  var valueWidth =
+    dim.valueWidth != null ? dim.valueWidth : rowWidth - labelWidth - gap;
+
+  var row = createFrameNode('Property row', {
+    fills: [],
+    layoutMode: 'HORIZONTAL',
+    primaryAxisSizingMode: 'FIXED',
+    counterAxisSizingMode: 'AUTO',
+    itemSpacing: gap,
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+    width: rowWidth,
+    counterAxisAlignItems: 'MIN',
+    primaryAxisAlignItems: 'MIN',
+  });
+
+  var isContainerPropRow =
+    Number(labelWidth) === Number(CONTAINER_CARD_LABEL_WIDTH);
+
+  var labelText = String(label) + ':';
+  var lh130 = { unit: 'PERCENT', value: 130 };
+
+  var labelNode;
+  var valueNode;
+
+  if (isContainerPropRow) {
+    labelNode = await createTextNode(labelText, {
+      name: 'Property label',
+      fontName: activeFontRegular,
+      fontSize: 14,
+      lineHeight: lh130,
+      fills: [{ type: 'SOLID', color: SPEC_COLORS.labelText }],
+      width: labelWidth,
+    });
+    valueNode = await createTextNode(String(value), {
+      name: 'Property value',
+      fontName: activeFontRegular,
+      fontSize: 14,
+      lineHeight: lh130,
+      fills: [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }],
+      width: valueWidth,
+    });
+  } else {
+    var dt = designTokens || { textStyles: {} };
+    var bodyStyle =
+      dt.textStyles && dt.textStyles.bodyStyle ? dt.textStyles.bodyStyle : null;
+
+    var labelOpts = {
+      name: 'Label',
+      fontName: activeFontMedium,
+      fontSize: 14,
+      width: labelWidth,
+    };
+
+    if (bodyStyle) {
+      labelOpts.textStyle = bodyStyle;
+    } else {
+      labelOpts.fills = [{ type: 'SOLID', color: SPEC_COLORS.textSecondary }];
+      labelOpts.fallbackSolidColor = SPEC_COLORS.textSecondary;
+    }
+
+    labelNode = await createTextNode(labelText, labelOpts);
+
+    var valOpts = {
+      name: 'Value',
+      fontName: activeFontMedium,
+      fontSize: 14,
+      width: valueWidth,
+    };
+
+    if (bodyStyle) {
+      valOpts.textStyle = bodyStyle;
+    } else {
+      valOpts.fills = [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }];
+      valOpts.fallbackSolidColor = SPEC_COLORS.textPrimary;
+    }
+
+    valueNode = await createTextNode(String(value), valOpts);
+  }
+
+  labelNode.resize(labelWidth, labelNode.height);
+  valueNode.resize(valueWidth, valueNode.height);
+
+  row.appendChild(labelNode);
+  row.appendChild(valueNode);
+  return row;
+}
+
+function createDivider(designTokens, dividerWidth) {
+  var w = dividerWidth != null ? dividerWidth : INNER_ROW_WIDTH;
+  var r = figma.createRectangle();
+  r.name = 'Divider';
+  r.resize(w, 1);
+  if (designTokens && designTokens.colors && designTokens.colors.cardBorder) {
+    applyFillToken(r, designTokens.colors.cardBorder, SPEC_COLORS.border);
+  } else {
+    r.fills = [{ type: 'SOLID', color: SPEC_COLORS.border }];
+  }
+  r.strokes = [];
+  return r;
+}
+
+async function createWarningBlock(lines, warnOpts, designTokens) {
+  warnOpts = warnOpts || {};
+  void designTokens;
+
+  var outerW =
+    warnOpts.outerWidth != null ? warnOpts.outerWidth : INNER_ROW_WIDTH;
+
+  var wrap = createFrameNode('Warning block', {
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.warningBg }],
+    layoutMode: 'VERTICAL',
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+    itemSpacing: 6,
+    paddingTop: 12,
+    paddingRight: 12,
+    paddingBottom: 12,
+    paddingLeft: 12,
+    cornerRadius: 8,
+  });
+  wrap.resize(outerW, wrap.height);
+
+  var textW = outerW - 24;
+  for (var wi = 0; wi < lines.length; wi++) {
+    var line = await createTextNode(lines[wi], {
+      name: 'Warning line',
+      fontSize: 12,
+      fills: [{ type: 'SOLID', color: SPEC_COLORS.warningText }],
+      width: textW,
+    });
+    wrap.appendChild(line);
+  }
+  return wrap;
+}
+
+async function createSpecHeader(spec, designTokens) {
+  void designTokens;
+
+  var block = createFrameNode('Spec header', {
+    fills: [],
+    layoutMode: 'VERTICAL',
+    itemSpacing: 8,
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'AUTO',
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+  });
+
+  var t1 = await createTextNode('Спецификация компонента', {
+    name: 'Header title',
+    fontName: activeFontBold,
+    fontSize: 28,
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }],
+    width: INNER_CONTENT_WIDTH,
+  });
+
+  var t2 = await createTextNode(spec.component.name, {
+    name: 'Header subtitle',
+    fontSize: 16,
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.textSecondary }],
+    width: INNER_CONTENT_WIDTH,
+  });
+
+  var t3 = await createTextNode('Сгенерировано из выбранного слоя Figma', {
+    name: 'Header note',
+    fontSize: 12,
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.textSecondary }],
+    width: INNER_CONTENT_WIDTH,
+  });
+
+  block.appendChild(t1);
+  block.appendChild(t2);
+  block.appendChild(t3);
+  return block;
+}
+
+async function createOverviewSection(spec, designTokens, sectionOrdinal) {
+  var sectionTitle =
+    sectionOrdinal != null
+      ? String(sectionOrdinal) + '. Общая информация'
+      : 'Общая информация';
+
+  var section = createFrameNode('Overview section', {
+    fills: [],
+    layoutMode: 'VERTICAL',
+    itemSpacing: 12,
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+  });
+  section.resize(INNER_CONTENT_WIDTH, section.height);
+
+  section.appendChild(await createSectionTitle(sectionTitle, designTokens));
+
+  var card = createFrameNode('Overview card', {
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.cardBg }],
+    strokes: [{ type: 'SOLID', color: SPEC_COLORS.border }],
+    strokeWeight: 1,
+    cornerRadius: SPEC_LAYOUT.cardCornerRadius,
+    layoutMode: 'VERTICAL',
+    itemSpacing: SPEC_LAYOUT.rowGap,
+    paddingTop: SPEC_LAYOUT.cardPadding,
+    paddingRight: SPEC_LAYOUT.cardPadding,
+    paddingBottom: SPEC_LAYOUT.cardPadding,
+    paddingLeft: SPEC_LAYOUT.cardPadding,
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+  });
+  card.resize(INNER_CONTENT_WIDTH, card.height);
+
+  card.appendChild(
+    await createPropertyRow('Название', spec.component.name, designTokens)
+  );
+  card.appendChild(await createPropertyRow('Тип', spec.component.type, designTokens));
+  card.appendChild(
+    await createPropertyRow(
+      'Количество контейнеров',
+      String(spec.containers.length),
+      designTokens
+    )
+  );
+  card.appendChild(
+    await createPropertyRow(
+      'Количество элементов анатомии',
+      String(spec.anatomy.length),
+      designTokens
+    )
+  );
+
+  section.appendChild(card);
+  stretchChildHorizontal(card);
+
+  if (spec.warnings && spec.warnings.length) {
+    var warnBlock = await createWarningBlock(spec.warnings, null, designTokens);
+    section.appendChild(warnBlock);
+    stretchChildHorizontal(warnBlock);
+  }
+
+  return section;
+}
+
+async function createAnatomySection(spec, designTokens, sectionOrdinal) {
+  var sectionTitle =
+    sectionOrdinal != null ? String(sectionOrdinal) + '. Анатомия' : 'Анатомия';
+
+  var section = createFrameNode('Anatomy section', {
+    fills: [],
+    layoutMode: 'VERTICAL',
+    itemSpacing: SPEC_LAYOUT.cardGap,
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+  });
+  section.resize(INNER_CONTENT_WIDTH, section.height);
+
+  section.appendChild(await createSectionTitle(sectionTitle, designTokens));
+
+  var card = createFrameNode('Anatomy card', {
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.cardBg }],
+    strokes: [{ type: 'SOLID', color: SPEC_COLORS.border }],
+    strokeWeight: 1,
+    cornerRadius: SPEC_LAYOUT.cardCornerRadius,
+    layoutMode: 'VERTICAL',
+    itemSpacing: SPEC_LAYOUT.smallGap,
+    paddingTop: SPEC_LAYOUT.cardPadding,
+    paddingRight: SPEC_LAYOUT.cardPadding,
+    paddingBottom: SPEC_LAYOUT.cardPadding,
+    paddingLeft: SPEC_LAYOUT.cardPadding,
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+  });
+  card.resize(INNER_CONTENT_WIDTH, card.height);
+
+  for (var ai = 0; ai < spec.anatomy.length; ai++) {
+    var it = spec.anatomy[ai];
+    var itemFrame = createFrameNode('Anatomy item ' + (ai + 1), {
+      fills: [],
+      layoutMode: 'VERTICAL',
+      itemSpacing: 6,
+      primaryAxisSizingMode: 'AUTO',
+      counterAxisSizingMode: 'FIXED',
+      paddingTop: 0,
+      paddingRight: 0,
+      paddingBottom: 8,
+      paddingLeft: 0,
+    });
+
+    var title = await createTextNode(String(ai + 1) + '. ' + String(it.name), {
+      name: 'Anatomy item title',
+      fontName: activeFontMedium,
+      fontSize: 13,
+      fills: [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }],
+      width: INNER_ROW_WIDTH,
+    });
+
+    var meta = await createTextNode(
+      String(it.type) + ' · ' + formatRequired(it.required),
+      {
+        name: 'Anatomy item meta',
+        fontSize: 12,
+        fills: [{ type: 'SOLID', color: SPEC_COLORS.textSecondary }],
+        width: INNER_ROW_WIDTH,
+      }
+    );
+
+    var desc = await createTextNode(it.description, {
+      name: 'Anatomy item description',
+      fontSize: 12,
+      fills: [{ type: 'SOLID', color: SPEC_COLORS.textSecondary }],
+      width: INNER_ROW_WIDTH,
+    });
+
+    itemFrame.appendChild(title);
+    itemFrame.appendChild(meta);
+    itemFrame.appendChild(desc);
+    card.appendChild(itemFrame);
+    stretchChildHorizontal(itemFrame);
+
+    if (ai < spec.anatomy.length - 1) {
+      card.appendChild(createDivider(designTokens, INNER_ROW_WIDTH));
+    }
+  }
+
+  section.appendChild(card);
+  stretchChildHorizontal(card);
+  return section;
+}
+
+function createCardDividerStrip(designTokens, dividerTotalWidth) {
+  var stripW =
+    dividerTotalWidth != null ? dividerTotalWidth : INNER_CONTENT_WIDTH;
+  var d = createFrameNode('Container card heading divider', {
+    fills: [],
+    layoutMode: 'NONE',
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+  });
+
+  applyFillToken(
+    d,
+    designTokens.colors.headingDivider || designTokens.colors.cardBorder,
+    SPEC_COLORS.cardBorder
+  );
+
+  d.resize(Math.max(1, stripW), 1);
+  return d;
+}
+
+async function createContainerCard(container, index, designTokens) {
+  void index;
+
+  var sp = getDesignSpaces(designTokens);
+  var rad = getDesignRadiusMd(designTokens);
+  var outerW = SPEC_CARD_LAYOUT.descriptionWidth;
+
+  var propDim = {
+    rowWidth: descriptionCardContentInnerWidth(designTokens),
+    labelWidth: CONTAINER_CARD_LABEL_WIDTH,
+    valueWidth: descriptionCardValueColumnWidth(designTokens),
+  };
+
+  var card = createFrameNode('Container card', {
+    fills: [],
+    strokes: [],
+    layoutMode: 'VERTICAL',
+    itemSpacing: 0,
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+    width: outerW,
+    clipsContent: false,
+    cornerRadius: rad,
+    effects: SPEC_EFFECTS.cardShadow,
+  });
+  applyFillToken(card, designTokens.colors.cardBackground, SPEC_COLORS.containerCardBg);
+  applyStrokeToken(card, designTokens.colors.cardBorder, SPEC_COLORS.cardBorder, 1);
+
+  var heading = createFrameNode('Container card heading', {
+    fills: [],
+    strokes: [],
+    layoutMode: 'VERTICAL',
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+    itemSpacing: sp.medium,
+    paddingTop: sp.medium,
+    paddingRight: sp.xl,
+    paddingBottom: sp.medium,
+    paddingLeft: sp.xl,
+    cornerRadius: 0,
+    topLeftRadius: rad,
+    topRightRadius: rad,
+    bottomLeftRadius: 0,
+    bottomRightRadius: 0,
+    width: outerW,
+  });
+
+  applyFillToken(
+    heading,
+    designTokens.colors.cardBackground,
+    SPEC_COLORS.containerCardBg
+  );
+
+  var titleOpts = {
+    name: 'Container card title',
+    fontName: activeFontBold,
+    fontSize: 16,
+    lineHeight: { unit: 'PERCENT', value: 130 },
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }],
+    width: outerW - sp.xl * 2,
+  };
+
+  var title = await createTextNode(String(container.name), titleOpts);
+
+  heading.appendChild(title);
+  card.appendChild(heading);
+  stretchChildHorizontal(heading);
+
+  var divider = createCardDividerStrip(designTokens, outerW);
+  card.appendChild(divider);
+  stretchChildHorizontal(divider);
+
+  var content = createFrameNode('Container card content', {
+    fills: [],
+    strokes: [],
+    layoutMode: 'VERTICAL',
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+    itemSpacing: sp.medium,
+    paddingTop: sp.xl,
+    paddingRight: sp.xl,
+    paddingBottom: sp.xl,
+    paddingLeft: sp.xl,
+    cornerRadius: 0,
+    topLeftRadius: 0,
+    topRightRadius: 0,
+    bottomLeftRadius: SPEC_LAYOUT.cardCornerRadius,
+    bottomRightRadius: SPEC_LAYOUT.cardCornerRadius,
+    width: outerW,
+  });
+
+  applyFillToken(
+    content,
+    designTokens.colors.cardBackground,
+    SPEC_COLORS.containerCardBg
+  );
+
+  content.appendChild(
+    await createPropertyRow(
+      'Direction',
+      formatDirection(container.layout.direction),
+      designTokens,
+      propDim
+    )
+  );
+  content.appendChild(
+    await createPropertyRow(
+      'Alignment',
+      formatAlignmentForContainer(container),
+      designTokens,
+      propDim
+    )
+  );
+  content.appendChild(
+    await createPropertyRow(
+      'Width',
+      formatSizingModeOnly(container.sizing.width),
+      designTokens,
+      propDim
+    )
+  );
+
+  var padRows = createPaddingRows(container);
+
+  for (var pj = 0; pj < padRows.length; pj++) {
+    content.appendChild(
+      await createPropertyRow(
+        padRows[pj].label,
+        padRows[pj].value,
+        designTokens,
+        propDim
+      )
+    );
+  }
+
+  if (container.warnings && container.warnings.length) {
+    var wb = await createWarningBlock(
+      container.warnings,
+      {
+        outerWidth: descriptionCardContentInnerWidth(designTokens),
+      },
+      designTokens
+    );
+    content.appendChild(wb);
+    stretchChildHorizontal(wb);
+  }
+
+  card.appendChild(content);
+  stretchChildHorizontal(content);
+
+  return card;
+}
+
+async function createContainersSection(spec, root, designTokens, sectionOrdinal, sections) {
+  var sectionTitle =
+    sectionOrdinal != null
+      ? String(sectionOrdinal) + '. Контейнеры'
+      : 'Контейнеры';
+
+  var section = createFrameNode('Containers section', {
+    fills: [],
+    layoutMode: 'VERTICAL',
+    itemSpacing: SPEC_LAYOUT.cardGap,
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'FIXED',
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+  });
+  section.resize(INNER_CONTENT_WIDTH, section.height);
+
+  section.appendChild(await createSectionTitle(sectionTitle, designTokens));
+
+  for (var ck = 0; ck < spec.containers.length; ck++) {
+    var brow = await createContainerSpecRow(spec.containers[ck], ck + 1, root, designTokens, sections);
+
+    section.appendChild(brow);
+    stretchChildHorizontal(brow);
+  }
+
+  return section;
+}
+
+function directionRu(dir) {
+  switch (dir) {
+    case 'horizontal':
+      return 'Горизонтальное Auto Layout';
+    case 'vertical':
+      return 'Вертикальное Auto Layout';
+    case 'grid':
+      return 'Сетка (Grid)';
+    case 'none':
+      return 'Нет Auto Layout';
+    default:
+      return escapeMarkdownTableCell(String(dir));
+  }
+}
+
+function sizingLine(side) {
+  return side.mode + ', ' + side.value + 'px';
+}
+
+function generateMarkdown(spec, sections) {
+  sections = normalizeSectionSettings(sections);
+  var lines = [];
+
+  lines.push('# Спецификация компонента: ' + escapeMarkdownTableCell(spec.component.name));
+  lines.push('');
+
+  var sectionCounter = { value: 1 };
+
+  var anySections =
+    sections.overview ||
+    sections.anatomy ||
+    sections.containers ||
+    false;
+
+  if (!anySections) {
+    lines.push('Не выбраны информационные блоки для отображения.');
+    return lines.join('\n');
+  }
+
+  if (sections.overview) {
+    var ovNum = getSectionNumber(sectionCounter);
+    lines.push('## ' + ovNum + '. Общая информация');
+    lines.push('');
+    lines.push('| Параметр | Значение |');
+    lines.push('|---|---|');
+    lines.push('| Название | ' + escapeMarkdownTableCell(spec.component.name) + ' |');
+    lines.push('| Тип | ' + escapeMarkdownTableCell(spec.component.type) + ' |');
+    lines.push('| Количество контейнеров | ' + spec.containers.length + ' |');
+    lines.push('| Количество элементов анатомии | ' + spec.anatomy.length + ' |');
+
+    if (spec.warnings.length) {
+      lines.push('');
+      lines.push('## Предупреждения');
+      lines.push('');
+      for (var wi = 0; wi < spec.warnings.length; wi++) {
+        lines.push('- ' + escapeMarkdownTableCell(spec.warnings[wi]));
+      }
+    }
+  } else if (spec.warnings.length) {
+    var wnStandalone = getSectionNumber(sectionCounter);
+    lines.push('## ' + wnStandalone + '. Предупреждения');
+    lines.push('');
+    for (var wj = 0; wj < spec.warnings.length; wj++) {
+      lines.push('- ' + escapeMarkdownTableCell(spec.warnings[wj]));
+    }
+  }
+
+  if (sections.anatomy) {
+    var anNum = getSectionNumber(sectionCounter);
+
+    lines.push('');
+    lines.push('## ' + anNum + '. Анатомия');
+    lines.push('');
+    lines.push('| № | Элемент | Тип | Обязательность | Описание |');
+    lines.push('|---:|---|---|---|---|');
+    for (var ai = 0; ai < spec.anatomy.length; ai++) {
+      var it = spec.anatomy[ai];
+      lines.push(
+        '| ' +
+          (ai + 1) +
+          ' | ' +
+          escapeMarkdownTableCell(it.name) +
+          ' | ' +
+          escapeMarkdownTableCell(it.type) +
+          ' | ' +
+          formatRequired(it.required) +
+          ' | ' +
+          escapeMarkdownTableCell(it.description) +
+          ' |'
+      );
+    }
+  }
+
+  if (sections.containers) {
+    var cn = getSectionNumber(sectionCounter);
+
+    lines.push('');
+    lines.push('## ' + cn + '. Контейнеры');
+
+    for (var ci = 0; ci < spec.containers.length; ci++) {
+      var c = spec.containers[ci];
+      var idx = ci + 1;
+
+      lines.push('');
+      lines.push('### ' + cn + '.' + idx + ' ' + escapeMarkdownTableCell(c.path));
+      lines.push('');
+      lines.push('| Параметр | Значение |');
+      lines.push('|---|---|');
+      lines.push('| Название | ' + escapeMarkdownTableCell(c.name) + ' |');
+      lines.push('| Тип | ' + escapeMarkdownTableCell(c.type) + ' |');
+      lines.push(
+        '| Направление | ' + escapeMarkdownTableCell(directionRu(c.layout.direction)) + ' |'
+      );
+      lines.push(
+        '| Выравнивание по основной оси | ' +
+          (c.layout.primaryAxisAlignment
+            ? escapeMarkdownTableCell(String(c.layout.primaryAxisAlignment))
+            : '—') +
+          ' |'
+      );
+      lines.push(
+        '| Выравнивание по поперечной оси | ' +
+          (c.layout.counterAxisAlignment
+            ? escapeMarkdownTableCell(String(c.layout.counterAxisAlignment))
+            : '—') +
+          ' |'
+      );
+      lines.push('| Ширина | ' + escapeMarkdownTableCell(sizingLine(c.sizing.width)) + ' |');
+      lines.push('| Высота | ' + escapeMarkdownTableCell(sizingLine(c.sizing.height)) + ' |');
+
+      lines.push('');
+      lines.push('#### Padding');
+      lines.push('');
+      lines.push('| Сторона | Значение |');
+      lines.push('|---|---|');
+      lines.push('| Top | ' + escapeMarkdownTableCell(formatTokenWithValue(c.padding.top)) + ' |');
+      lines.push(
+        '| Right | ' + escapeMarkdownTableCell(formatTokenWithValue(c.padding.right)) + ' |'
+      );
+      lines.push(
+        '| Bottom | ' + escapeMarkdownTableCell(formatTokenWithValue(c.padding.bottom)) + ' |'
+      );
+      lines.push('| Left | ' + escapeMarkdownTableCell(formatTokenWithValue(c.padding.left)) + ' |');
+
+      lines.push('');
+      lines.push('#### Spacing');
+
+      var hasEitherGapDefined = !!(c.spacing.gap || c.spacing.rowGap);
+
+      lines.push('');
+      if (!hasEitherGapDefined) {
+        lines.push(
+          escapeMarkdownTableCell('Gap не задан или контейнер не использует Auto Layout.')
+        );
+      }
+
+      if (hasEitherGapDefined) {
+        lines.push('');
+        lines.push('| Параметр | Значение | Источник |');
+        lines.push('|---|---|---|');
+
+        if (c.spacing.gap) {
+          lines.push(
+            '| Gap | ' +
+              escapeMarkdownTableCell(formatTokenWithValue(c.spacing.gap)) +
+              ' | ' +
+              escapeMarkdownTableCell('auto-layout') +
+              ' |'
+          );
+        }
+
+        if (c.spacing.rowGap) {
+          lines.push(
+            '| Row gap | ' +
+              escapeMarkdownTableCell(formatTokenWithValue(c.spacing.rowGap)) +
+              ' | ' +
+              escapeMarkdownTableCell('auto-layout') +
+              ' |'
+          );
+        }
+
+        lines.push('');
+      }
+
+      if (c.warnings.length) {
+        lines.push('#### Предупреждения');
+        lines.push('');
+        for (var cw = 0; cw < c.warnings.length; cw++) {
+          lines.push('- ' + escapeMarkdownTableCell(c.warnings[cw]));
+        }
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function buildSpecFromRoot(root) {
+  var anatomy = parseAnatomy(root);
+  var containers = parseContainers(root);
+  var warnings = [];
+
+  if (containers.length === 0) {
+    warnings.push('Контейнеры не найдены.');
+  }
+
+  var hasNoAl = containers.some(function (c2) {
+    return c2.layout.direction === 'none';
+  });
+
+  if (hasNoAl) {
+    warnings.push('Некоторые контейнеры не используют Auto Layout.');
+  }
+
+  return {
+    component: {
+      id: root.id,
+      name: root.name,
+      type: root.type,
+    },
+    anatomy: anatomy,
+    containers: containers,
+    warnings: warnings,
+  };
+}
+
+function generateSpec(sections) {
+  sections = normalizeSectionSettings(sections);
+  var info = getSelectionInfo();
+
+  if (!info.supported) {
+    figma.ui.postMessage({
+      type: 'ERROR',
+      payload: {
+        message:
+          info.error ||
+          'Невозможно сгенерировать спецификацию для текущего выделения.',
+      },
+    });
+    return;
+  }
+
+  var root = figma.currentPage.selection[0];
+  var spec = buildSpecFromRoot(root);
+
+  figma.ui.postMessage({
+    type: 'SPEC_GENERATED',
+    payload: {
+      spec: spec,
+      markdown: generateMarkdown(spec, sections),
+    },
+  });
+}
+
+async function generateSpecFrames(sections) {
+  sections = normalizeSectionSettings(sections);
+  try {
+    var info = getSelectionInfo();
+
+    if (!info.supported) {
+      figma.ui.postMessage({
+        type: 'ERROR',
+        payload: {
+          message:
+            info.error ||
+            'Невозможно сгенерировать спецификацию для текущего выделения.',
+        },
+      });
+      return;
+    }
+
+    var root = figma.currentPage.selection[0];
+
+    await loadSpecFonts();
+
+    var designTokens = await loadSpecDesignTokens();
+
+    var spec = buildSpecFromRoot(root);
+
+    var specFrame = figma.createFrame();
+    specFrame.name = 'Spec / ' + root.name;
+    specFrame.layoutMode = 'VERTICAL';
+    specFrame.primaryAxisSizingMode = 'AUTO';
+    specFrame.counterAxisSizingMode = 'FIXED';
+    specFrame.resize(SPEC_LAYOUT.width, 100);
+    specFrame.paddingTop = SPEC_LAYOUT.padding;
+    specFrame.paddingRight = SPEC_LAYOUT.padding;
+    specFrame.paddingBottom = SPEC_LAYOUT.padding;
+    specFrame.paddingLeft = SPEC_LAYOUT.padding;
+    specFrame.itemSpacing = SPEC_LAYOUT.sectionGap;
+    specFrame.cornerRadius = SPEC_LAYOUT.cornerRadius;
+    specFrame.fills = [{ type: 'SOLID', color: SPEC_COLORS.pageBg }];
+
+    var header = await createSpecHeader(spec, designTokens);
+
+    specFrame.appendChild(header);
+    stretchChildHorizontal(header);
+
+    var anySections =
+      sections.overview ||
+      sections.anatomy ||
+      sections.containers ||
+      false;
+
+    if (!anySections) {
+      var emptyNotice = await createEmptySectionsNotice(designTokens);
+      specFrame.appendChild(emptyNotice);
+      stretchChildHorizontal(emptyNotice);
+    } else {
+      var ordinal = { value: 1 };
+
+      if (!sections.overview && spec.warnings && spec.warnings.length) {
+        var warnsSec = await createStandaloneWarningsSection(
+          spec,
+          designTokens,
+          getSectionNumber(ordinal)
+        );
+        specFrame.appendChild(warnsSec);
+        stretchChildHorizontal(warnsSec);
+      }
+
+      if (sections.overview) {
+        var overview = await createOverviewSection(
+          spec,
+          designTokens,
+          getSectionNumber(ordinal)
+        );
+
+        specFrame.appendChild(overview);
+        stretchChildHorizontal(overview);
+      }
+
+      if (sections.anatomy) {
+        var anatomySec = await createAnatomySection(
+          spec,
+          designTokens,
+          getSectionNumber(ordinal)
+        );
+
+        specFrame.appendChild(anatomySec);
+        stretchChildHorizontal(anatomySec);
+      }
+
+      if (sections.containers) {
+        var containersSec = await createContainersSection(
+          spec,
+          root,
+          designTokens,
+          getSectionNumber(ordinal),
+          sections
+        );
+
+        specFrame.appendChild(containersSec);
+        stretchChildHorizontal(containersSec);
+      }
+    }
+
+    figma.currentPage.appendChild(specFrame);
+
+    var box = root.absoluteBoundingBox;
+    if (box) {
+      specFrame.x = box.x + box.width + 80;
+      specFrame.y = box.y;
+    } else {
+      specFrame.x = root.x + root.width + 80;
+      specFrame.y = root.y;
+    }
+
+    figma.currentPage.selection = [specFrame];
+    figma.viewport.scrollAndZoomIntoView([specFrame]);
+
+    figma.ui.postMessage({
+      type: 'FRAMES_GENERATED',
+      payload: {
+        name: specFrame.name,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    figma.ui.postMessage({
+      type: 'ERROR',
+      payload: {
+        message:
+          'Не удалось создать фреймы спецификации. Проверьте консоль плагина.',
+      },
+    });
+  }
+}
+
+figma.showUI(typeof __html__ !== 'undefined' ? __html__ : '', {
+  width: 520,
+  height: 720,
+});
+
+figma.ui.onmessage = function (message) {
+  if (!message || typeof message.type !== 'string') return;
+
+  var payload = message.payload || {};
+
+  var sectionSettings =
+    payload && typeof payload === 'object' && payload.sections
+      ? payload.sections
+      : undefined;
+
+  if (message.type === 'GENERATE_SPEC' || message.type === 'GENERATE_MARKDOWN') {
+    generateSpec(sectionSettings);
+  }
+
+  if (message.type === 'GENERATE_FRAMES') {
+    void generateSpecFrames(sectionSettings);
+  }
+
+  if (message.type === 'REFRESH_SELECTION') sendSelectionInfo();
+};
+
+figma.on('selectionchange', sendSelectionInfo);
+
+sendSelectionInfo();
