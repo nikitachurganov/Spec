@@ -49,6 +49,16 @@ export const COLOR_TOKEN_MAP = {
     fallback: '#8C8C8C',
   },
 
+  strokeBorder: {
+    names: ['Stroke/Border'],
+    fallback: '#D9D9D9',
+  },
+
+  strokeBorderLight: {
+    names: ['Stroke/Border-light', 'Stroke/Border-Light'],
+    fallback: '#EEEEEE',
+  },
+
   anatomyPointerFill: {
     names: ['Background/Brand-dark'],
     fallback: '#FC8507',
@@ -166,6 +176,15 @@ export const SPEC_TOKEN_MAP = {
       fallback: {
         fontName: interRegular,
         fontSize: 14,
+        lineHeight: { unit: 'PERCENT', value: 130 },
+        fills: [{ type: 'SOLID', color: hexToRgb('#1F1F1F') }] as Paint[],
+      } satisfies TextStyleFallback,
+    },
+    bulletedList: {
+      names: ['Bulleted list', 'Bulleted List', 'bulleted list'],
+      fallback: {
+        fontName: interRegular,
+        fontSize: 16,
         lineHeight: { unit: 'PERCENT', value: 130 },
         fills: [{ type: 'SOLID', color: hexToRgb('#1F1F1F') }] as Paint[],
       } satisfies TextStyleFallback,

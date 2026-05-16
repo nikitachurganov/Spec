@@ -9,7 +9,7 @@ import { setSpecBuildStyleContext } from '../tokens/specStyleContext';
 /**
  * Runs the specification build. Legacy layout lives in `legacy/legacyCore.js`;
  * design tokens / variables are layered via `StyleResolver` + `applyTokens`.
- * Секции: `settings.header`, `settings.componentAnatomy`, `settings.spec`.
+ * Секции в `Specification / …`: accessibility → componentAnatomy → spec; плюс `settings.header` во wrapper.
  * Внешний wrapper: при `header === true` — `.DS-Template-header/Default` + `Specification / …`.
  */
 export async function buildSpecification(settings: PluginSettings): Promise<void> {

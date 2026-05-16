@@ -1,5 +1,6 @@
 'use strict';
 
+import { buildAccessibilitySection } from '../builders/buildAccessibilitySection';
 import { assembleSpecificationWrapper, findDsTemplateHeader } from '../builders/specificationWrapper';
 import { createSpecIcon } from '../icons/iconFactory';
 import { getPropertyIconNames } from '../icons/propertyIconResolver';
@@ -298,6 +299,7 @@ var DEFAULT_SECTION_SETTINGS = {
   header: true,
   spec: true,
   componentAnatomy: true,
+  accessibility: true,
   childOverlays: true,
   gapOverlays: true,
   useComponentPropertyNames: true,
@@ -319,6 +321,11 @@ function normalizeSectionSettings(settings) {
         ? settings.anatomy
         : DEFAULT_SECTION_SETTINGS.componentAnatomy;
 
+  var accessibility =
+    settings && typeof settings.accessibility === 'boolean'
+      ? settings.accessibility
+      : DEFAULT_SECTION_SETTINGS.accessibility;
+
   return {
     header:
       settings && typeof settings.header === 'boolean'
@@ -326,6 +333,7 @@ function normalizeSectionSettings(settings) {
         : DEFAULT_SECTION_SETTINGS.header,
     spec: spec,
     componentAnatomy: componentAnatomy,
+    accessibility: accessibility,
     containers: spec,
     anatomy: componentAnatomy,
     childOverlays:
@@ -5802,6 +5810,22 @@ async function buildSpecification(sections) {
     specificationFrame.clipsContent = false;
 
     await tryApplySpecificationFrameTokens(specificationFrame);
+
+    if (sections.accessibility) {
+      var styleCtx = getSpecBuildStyleContext();
+      if (styleCtx && styleCtx.resolver) {
+        var accessibilitySection = await buildAccessibilitySection({
+          root: root,
+          settings: sections,
+          resolver: styleCtx.resolver,
+          spacingTokenResolver: styleCtx.spacingTokenResolver,
+        });
+        specificationFrame.appendChild(accessibilitySection);
+        stretchInParent(accessibilitySection);
+      } else {
+        console.warn('[Spec] Accessibility section skipped: no style context');
+      }
+    }
 
     if (sections.componentAnatomy || sections.anatomy) {
       var propertyMetadata = await AnatomyGenerator.getComponentPropertyMetadata(

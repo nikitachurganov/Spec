@@ -24,7 +24,7 @@ export const DEFAULT_PLUGIN_SETTINGS: PluginSettings = {
   variants: false,
   behavior: false,
   usageScenarios: false,
-  accessibility: false,
+  accessibility: true,
   themes: false,
 
   childOverlays: true,
@@ -35,7 +35,12 @@ export const DEFAULT_PLUGIN_SETTINGS: PluginSettings = {
 
 /** Хотя бы один блок спецификации включён (активные toggles в UI). */
 export function hasAnySpecificationBlock(settings: PluginSettings): boolean {
-  return settings.header || settings.componentAnatomy || settings.spec;
+  return (
+    settings.header ||
+    settings.componentAnatomy ||
+    settings.spec ||
+    settings.accessibility
+  );
 }
 
 /** Поля без UI-переключателей: всегда включены при сборке. */
