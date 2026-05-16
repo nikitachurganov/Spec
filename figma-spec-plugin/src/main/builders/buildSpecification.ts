@@ -9,8 +9,8 @@ import { setSpecBuildStyleContext } from '../tokens/specStyleContext';
 /**
  * Runs the specification build. Legacy layout lives in `legacy/legacyCore.js`;
  * design tokens / variables are layered via `StyleResolver` + `applyTokens`.
- * Внешний Auto Layout `DS specification / …` с двумя прямыми детьми: инстанс шапки
- * `.DS-Template-header/Default` и фрейм `Specification / …` — через `assembleSpecificationWrapper`.
+ * Секции: `settings.header`, `settings.componentAnatomy`, `settings.spec`.
+ * Внешний wrapper: при `header === true` — `.DS-Template-header/Default` + `Specification / …`.
  */
 export async function buildSpecification(settings: PluginSettings): Promise<void> {
   const resolver = createStyleResolver({

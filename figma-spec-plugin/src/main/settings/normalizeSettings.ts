@@ -1,14 +1,44 @@
 import { DEFAULT_PLUGIN_SETTINGS, type PluginSettings } from '../../shared/settings';
 
+type LegacySettingsInput = Partial<PluginSettings> & {
+  containers?: boolean;
+  anatomy?: boolean;
+};
+
 export function normalizePluginSettings(input: unknown): PluginSettings {
   if (!input || typeof input !== 'object') {
-    return Object.assign({}, DEFAULT_PLUGIN_SETTINGS);
+    return { ...DEFAULT_PLUGIN_SETTINGS };
   }
-  const o = input as Partial<PluginSettings>;
+
+  const o = input as LegacySettingsInput;
+
+  const spec =
+    typeof o.spec === 'boolean'
+      ? o.spec
+      : typeof o.containers === 'boolean'
+        ? o.containers
+        : DEFAULT_PLUGIN_SETTINGS.spec;
+
+  const componentAnatomy =
+    typeof o.componentAnatomy === 'boolean'
+      ? o.componentAnatomy
+      : typeof o.anatomy === 'boolean'
+        ? o.anatomy
+        : DEFAULT_PLUGIN_SETTINGS.componentAnatomy;
+
   return {
-    containers:
-      typeof o.containers === 'boolean' ? o.containers : DEFAULT_PLUGIN_SETTINGS.containers,
-    anatomy: typeof o.anatomy === 'boolean' ? o.anatomy : DEFAULT_PLUGIN_SETTINGS.anatomy,
+    header: typeof o.header === 'boolean' ? o.header : DEFAULT_PLUGIN_SETTINGS.header,
+    componentAnatomy,
+    spec,
+    variants: typeof o.variants === 'boolean' ? o.variants : DEFAULT_PLUGIN_SETTINGS.variants,
+    behavior: typeof o.behavior === 'boolean' ? o.behavior : DEFAULT_PLUGIN_SETTINGS.behavior,
+    usageScenarios:
+      typeof o.usageScenarios === 'boolean'
+        ? o.usageScenarios
+        : DEFAULT_PLUGIN_SETTINGS.usageScenarios,
+    accessibility:
+      typeof o.accessibility === 'boolean' ? o.accessibility : DEFAULT_PLUGIN_SETTINGS.accessibility,
+    themes: typeof o.themes === 'boolean' ? o.themes : DEFAULT_PLUGIN_SETTINGS.themes,
     childOverlays:
       typeof o.childOverlays === 'boolean'
         ? o.childOverlays

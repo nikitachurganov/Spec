@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   DEFAULT_PLUGIN_SETTINGS,
+  hasAnySpecificationBlock,
   withHiddenSpecificationPreferences,
   type PluginSettings,
 } from '@shared/settings';
 import type { MainToUiMessage } from '@shared/messages';
 import { postToMain } from './postToMain';
 import { SettingsPanel } from './components/SettingsPanel';
-import { GenerateButton } from './components/GenerateButton';
 import { StatusMessage } from './components/StatusMessage';
+
+const NO_BLOCKS_ERROR = 'Выберите хотя бы один блок спецификации.';
 
 function isMainMessage(data: unknown): data is MainToUiMessage {
   if (!data || typeof data !== 'object') return false;
@@ -16,7 +18,6 @@ function isMainMessage(data: unknown): data is MainToUiMessage {
   return typeof t === 'string';
 }
 
-/** Figma delivers main→UI payloads on `event.data.pluginMessage` (see plugin docs). */
 function unwrapMainPayload(raw: unknown): unknown {
   if (raw && typeof raw === 'object' && 'pluginMessage' in raw) {
     return (raw as { pluginMessage: unknown }).pluginMessage;
@@ -70,7 +71,15 @@ export function App() {
     return () => window.removeEventListener('message', onWindowMessage);
   }, []);
 
-  const onGenerate = useCallback(() => {
+  const handleGenerate = useCallback(() => {
+    if (busy) return;
+
+    if (!hasAnySpecificationBlock(settings)) {
+      setError(NO_BLOCKS_ERROR);
+      setStatus('');
+      return;
+    }
+
     setBusy(true);
     setError(null);
     setStatus('');
@@ -78,15 +87,37 @@ export function App() {
       type: 'BUILD_SPECIFICATION',
       payload: { settings: withHiddenSpecificationPreferences(settings) },
     });
-  }, [settings]);
+  }, [settings, busy]);
 
   return (
-    <>
-      <h1>Spec Generator</h1>
-      <SettingsPanel settings={settings} onChange={setSettings} />
-      <GenerateButton busy={busy} onClick={onGenerate} />
-      {error ? <StatusMessage text={error} variant="error" /> : null}
-      {!error && status ? <StatusMessage text={status} variant="success" /> : null}
-    </>
+    <div className="app">
+      <header className="app-header">
+        <div className="start-banner">
+          <span className="start-banner__text">Выберите компонент или фрейм</span>
+          <button
+            type="button"
+            className="start-banner__button"
+            disabled={busy}
+            onClick={handleGenerate}
+            data-hierarchy="primary"
+            data-size="small 36 px"
+            data-state={busy ? 'loading' : 'default'}
+            data-istoggled="false"
+            data-icon-left="false"
+            data-icon-right="false"
+          >
+            <span className="start-banner__button-text">
+              {busy ? 'Собираю...' : 'Начать'}
+            </span>
+          </button>
+        </div>
+      </header>
+
+      <main className="app-content">
+        <SettingsPanel settings={settings} onChange={setSettings} />
+        {error ? <StatusMessage text={error} variant="error" /> : null}
+        {!error && status ? <StatusMessage text={status} variant="success" /> : null}
+      </main>
+    </div>
   );
 }

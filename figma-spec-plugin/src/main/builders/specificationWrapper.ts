@@ -77,11 +77,18 @@ async function appendHeaderComponentNotFoundFallback(wrapper: FrameNode): Promis
 /**
  * Корень DS specification: два прямых ребёнка — инстанс шапки и фрейм спецификации.
  */
+export type SpecificationWrapperOptions = {
+  /** When false, neither header instance nor fallback text is added. */
+  includeHeader?: boolean;
+};
+
 export async function createSpecificationWrapper(
   rootName: string,
   headerInstance: InstanceNode | null,
-  specificationFrame: FrameNode
+  specificationFrame: FrameNode,
+  options?: SpecificationWrapperOptions
 ): Promise<FrameNode> {
+  const includeHeader = options?.includeHeader !== false;
   const wrapper = figma.createFrame();
 
   wrapper.name = `DS specification / ${rootName}`;
@@ -107,18 +114,20 @@ export async function createSpecificationWrapper(
     /* ignore */
   }
 
-  if (headerInstance) {
-    headerInstance.name = '.DS-Template-header/Default';
+  if (includeHeader) {
+    if (headerInstance) {
+      headerInstance.name = '.DS-Template-header/Default';
 
-    try {
-      headerInstance.layoutAlign = 'STRETCH';
-    } catch (error) {
-      console.warn('Cannot stretch header instance', error);
+      try {
+        headerInstance.layoutAlign = 'STRETCH';
+      } catch (error) {
+        console.warn('Cannot stretch header instance', error);
+      }
+
+      wrapper.appendChild(headerInstance);
+    } else {
+      await appendHeaderComponentNotFoundFallback(wrapper);
     }
-
-    wrapper.appendChild(headerInstance);
-  } else {
-    await appendHeaderComponentNotFoundFallback(wrapper);
   }
 
   specificationFrame.name = `Specification / ${rootName}`;
@@ -140,11 +149,13 @@ export async function createSpecificationWrapper(
 export async function assembleSpecificationWrapper(
   rootName: string,
   specificationFrame: FrameNode,
-  headerComponent: ComponentNode | null
+  headerComponent: ComponentNode | null,
+  options?: SpecificationWrapperOptions
 ): Promise<FrameNode> {
+  const includeHeader = options?.includeHeader !== false;
   let headerInstance: InstanceNode | null = null;
 
-  if (headerComponent) {
+  if (includeHeader && headerComponent) {
     try {
       headerInstance = headerComponent.createInstance();
     } catch (e) {
@@ -152,5 +163,5 @@ export async function assembleSpecificationWrapper(
     }
   }
 
-  return createSpecificationWrapper(rootName, headerInstance, specificationFrame);
+  return createSpecificationWrapper(rootName, headerInstance, specificationFrame, options);
 }

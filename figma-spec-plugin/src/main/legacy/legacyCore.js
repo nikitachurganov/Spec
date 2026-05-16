@@ -295,39 +295,55 @@ function descriptionCardValueColumnWidth(designTokens) {
 }
 
 var DEFAULT_SECTION_SETTINGS = {
-  containers: true,
-  anatomy: true,
+  header: true,
+  spec: true,
+  componentAnatomy: true,
   childOverlays: true,
   gapOverlays: true,
   useComponentPropertyNames: true,
+  useLibraryTokens: true,
 };
 
 function normalizeSectionSettings(settings) {
-  return {
-    containers:
-      settings && typeof settings.containers === 'boolean'
+  var spec =
+    settings && typeof settings.spec === 'boolean'
+      ? settings.spec
+      : settings && typeof settings.containers === 'boolean'
         ? settings.containers
-        : DEFAULT_SECTION_SETTINGS.containers,
+        : DEFAULT_SECTION_SETTINGS.spec;
 
-    anatomy:
-      settings && typeof settings.anatomy === 'boolean'
+  var componentAnatomy =
+    settings && typeof settings.componentAnatomy === 'boolean'
+      ? settings.componentAnatomy
+      : settings && typeof settings.anatomy === 'boolean'
         ? settings.anatomy
-        : DEFAULT_SECTION_SETTINGS.anatomy,
+        : DEFAULT_SECTION_SETTINGS.componentAnatomy;
 
+  return {
+    header:
+      settings && typeof settings.header === 'boolean'
+        ? settings.header
+        : DEFAULT_SECTION_SETTINGS.header,
+    spec: spec,
+    componentAnatomy: componentAnatomy,
+    containers: spec,
+    anatomy: componentAnatomy,
     childOverlays:
       settings && typeof settings.childOverlays === 'boolean'
         ? settings.childOverlays
         : DEFAULT_SECTION_SETTINGS.childOverlays,
-
     gapOverlays:
       settings && typeof settings.gapOverlays === 'boolean'
         ? settings.gapOverlays
         : DEFAULT_SECTION_SETTINGS.gapOverlays,
-
     useComponentPropertyNames:
       settings && typeof settings.useComponentPropertyNames === 'boolean'
         ? settings.useComponentPropertyNames
         : DEFAULT_SECTION_SETTINGS.useComponentPropertyNames,
+    useLibraryTokens:
+      settings && typeof settings.useLibraryTokens === 'boolean'
+        ? settings.useLibraryTokens
+        : DEFAULT_SECTION_SETTINGS.useLibraryTokens,
   };
 }
 
@@ -5787,7 +5803,7 @@ async function buildSpecification(sections) {
 
     await tryApplySpecificationFrameTokens(specificationFrame);
 
-    if (sections.anatomy) {
+    if (sections.componentAnatomy || sections.anatomy) {
       var propertyMetadata = await AnatomyGenerator.getComponentPropertyMetadata(
         root
       );
@@ -5811,7 +5827,7 @@ async function buildSpecification(sections) {
       stretchInParent(anatomySection);
     }
 
-    if (sections.containers) {
+    if (sections.spec || sections.containers) {
       var containersSection = await createContainersSection(
         spec,
         root,
@@ -5839,11 +5855,13 @@ async function buildSpecification(sections) {
       stretchInParent(placeholder);
     }
 
-    var dsHeaderComponent = findDsTemplateHeader();
+    var includeHeader = sections.header !== false;
+    var dsHeaderComponent = includeHeader ? findDsTemplateHeader() : null;
     var specificationRoot = await assembleSpecificationWrapper(
       root.name,
       specificationFrame,
-      dsHeaderComponent
+      dsHeaderComponent,
+      { includeHeader: includeHeader }
     );
 
     specificationRoot.x = root.x + root.width + 120;

@@ -1,23 +1,44 @@
 export type PluginSettings = {
-  containers: boolean;
-  anatomy: boolean;
+  header: boolean;
+  componentAnatomy: boolean;
+  spec: boolean;
+
+  variants: boolean;
+  behavior: boolean;
+  usageScenarios: boolean;
+  accessibility: boolean;
+  themes: boolean;
+
+  /** Технические настройки (не показываются в UI). */
   childOverlays: boolean;
   gapOverlays: boolean;
   useComponentPropertyNames: boolean;
-  /** When true, resolve colors/numbers/text from local file + enabled library variables. */
   useLibraryTokens: boolean;
 };
 
 export const DEFAULT_PLUGIN_SETTINGS: PluginSettings = {
-  containers: true,
-  anatomy: true,
+  header: true,
+  componentAnatomy: true,
+  spec: true,
+
+  variants: false,
+  behavior: false,
+  usageScenarios: false,
+  accessibility: false,
+  themes: false,
+
   childOverlays: true,
   gapOverlays: true,
   useComponentPropertyNames: true,
   useLibraryTokens: true,
 };
 
-/** Fields without UI toggles: always on when building / syncing from main. */
+/** Хотя бы один блок спецификации включён (активные toggles в UI). */
+export function hasAnySpecificationBlock(settings: PluginSettings): boolean {
+  return settings.header || settings.componentAnatomy || settings.spec;
+}
+
+/** Поля без UI-переключателей: всегда включены при сборке. */
 export function withHiddenSpecificationPreferences(settings: PluginSettings): PluginSettings {
   return {
     ...settings,

@@ -1,5 +1,6 @@
 import type { PluginSettings } from '@shared/settings';
-import { SectionToggle } from './SectionToggle';
+import { ACTIVE_FIRST_TOGGLE_ITEMS, type ToggleSettingKey } from './toggleItems';
+import { ToggleRow } from './ToggleRow';
 
 type Props = {
   settings: PluginSettings;
@@ -8,23 +9,32 @@ type Props = {
 
 export function SettingsPanel({ settings, onChange }: Props) {
   return (
-    <div className="card">
-      <h2>Блоки спецификации</h2>
-      <SectionToggle
-        label="Контейнеры"
-        checked={settings.containers}
-        onChange={(v) => onChange({ ...settings, containers: v })}
-      />
-      <SectionToggle
-        label="Анатомия"
-        checked={settings.anatomy}
-        onChange={(v) => onChange({ ...settings, anatomy: v })}
-      />
-      <SectionToggle
-        label="Использовать стили и токены из библиотеки"
-        checked={settings.useLibraryTokens}
-        onChange={(v) => onChange({ ...settings, useLibraryTokens: v })}
-      />
-    </div>
+    <section className="settings-section">
+      <h2 className="settings-title">Блоки спецификации</h2>
+
+      <div className="toggle-list">
+        {ACTIVE_FIRST_TOGGLE_ITEMS.map((item) => {
+          const key = item.key as ToggleSettingKey;
+          const checked = Boolean(settings[key]);
+
+          return (
+            <ToggleRow
+              key={item.key}
+              label={item.label}
+              checked={checked}
+              disabled={!item.enabled}
+              onChange={(nextChecked) => {
+                if (!item.enabled) return;
+
+                onChange({
+                  ...settings,
+                  [key]: nextChecked,
+                });
+              }}
+            />
+          );
+        })}
+      </div>
+    </section>
   );
 }
