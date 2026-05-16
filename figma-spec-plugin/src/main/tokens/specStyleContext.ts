@@ -11,6 +11,8 @@ export type SpecBuildStyleContext = {
   apply: {
     applySpecificationFrameTokens(frame: FrameNode, r: StyleResolver): Promise<void>;
     applySectionTitleTokens(text: TextNode, r: StyleResolver): Promise<void>;
+    applyHeadingFontFamilyToken(text: TextNode, base: FontName, r: StyleResolver): Promise<void>;
+    applyParagraphFontFamilyToken(text: TextNode, base: FontName, r: StyleResolver): Promise<void>;
     applyContainersSectionTokens(frame: FrameNode, r: StyleResolver): Promise<void>;
     applyAnatomyContainerTokens(frame: FrameNode, r: StyleResolver): Promise<void>;
     applyContainerCardTokens(frame: FrameNode, r: StyleResolver): Promise<void>;

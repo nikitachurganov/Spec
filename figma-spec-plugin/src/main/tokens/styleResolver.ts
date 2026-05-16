@@ -5,6 +5,10 @@ import type {
   ResolvedNumberToken,
   TextStyleFallback,
 } from './tokenTypes';
+import {
+  TYPOGRAPHY_VARIABLE_TOKEN_MAP,
+  type TypographyFontFamilyTokenKey,
+} from './tokenMap';
 
 export type ResolveColorOptions = {
   preferredCollectionNames?: readonly string[];
@@ -49,6 +53,12 @@ export function findByAliases<T extends { name: string }>(items: T[], names: str
     }
   }
   return null;
+}
+
+export function isStringVariable(variable: {
+  resolvedType: VariableResolvedDataType;
+}): boolean {
+  return variable.resolvedType === 'STRING';
 }
 
 export function trySetBoundVariable(
@@ -198,6 +208,12 @@ export type StyleResolver = {
   applyTextStyle(node: TextNode, names: string[], fallback: TextStyleFallback): Promise<void>;
   applyCornerRadius(node: RectangleCornerMixin, names: string[], fallback: number): Promise<void>;
   applyPadding(frame: FrameNode, names: string[], fallback: number): Promise<void>;
+  resolveStringVariable(names: string[]): Promise<Variable | null>;
+  applyFontFamilyToken(
+    node: TextNode,
+    tokenKey: TypographyFontFamilyTokenKey,
+    fallbackFontName: FontName
+  ): Promise<void>;
   getDebugSummary(): DebugResolutions;
 };
 
@@ -210,6 +226,8 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
 
   const localColorVars = new Map<string, Variable>();
   const localColorVarList: Variable[] = [];
+  const localStringVars = new Map<string, Variable>();
+  const localStringVarList: Variable[] = [];
   const localFloatVars = new Map<string, Variable>();
   const libraryByNormName = new Map<string, LibraryVarDescriptor[]>();
   const importedByKey = new Map<string, Variable>();
@@ -227,6 +245,7 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
 
   function indexLocalVariables(): void {
     localColorVarList.length = 0;
+    localStringVarList.length = 0;
     try {
       const vars = figma.variables.getLocalVariables();
       for (const v of vars) {
@@ -234,6 +253,10 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
         if (v.resolvedType === 'COLOR') {
           localColorVarList.push(v);
           localColorVars.set(k, v);
+        }
+        if (v.resolvedType === 'STRING') {
+          localStringVarList.push(v);
+          localStringVars.set(k, v);
         }
         if (v.resolvedType === 'FLOAT') localFloatVars.set(k, v);
       }
@@ -307,6 +330,57 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
       }
     }
     return null;
+  }
+
+  type ResolvedStringVarMeta = {
+    variable: Variable;
+    tokenName: string;
+    source: 'local-variable' | 'library-variable';
+  };
+
+  /** Strict exact match (normalized name): local STRING vars, then library (imported by key). */
+  async function findResolvedStringVariable(names: string[]): Promise<ResolvedStringVarMeta | null> {
+    for (const name of names) {
+      const k = normalizeTokenName(name);
+      if (!k) continue;
+      for (const v of localStringVarList) {
+        if (!isStringVariable(v)) continue;
+        if (normalizeTokenName(v.name) === k) {
+          return { variable: v, tokenName: v.name, source: 'local-variable' };
+        }
+      }
+    }
+
+    for (const name of names) {
+      const k = normalizeTokenName(name);
+      if (!k) continue;
+      const rawList = libraryByNormName.get(k) ?? [];
+      const stringDescs = rawList.filter((d) => isStringVariable(d));
+      const list = sortLibraryDescriptors(stringDescs, ['Typography & Colors']);
+
+      for (const d of list) {
+        let v: Variable;
+        if (importedByKey.has(d.key)) {
+          v = importedByKey.get(d.key)!;
+        } else {
+          try {
+            v = await figma.variables.importVariableByKeyAsync(d.key);
+            importedByKey.set(d.key, v);
+          } catch {
+            continue;
+          }
+        }
+        if (!isStringVariable(v)) continue;
+        return { variable: v, tokenName: v.name, source: 'library-variable' };
+      }
+    }
+
+    return null;
+  }
+
+  async function resolveStringVariable(names: string[]): Promise<Variable | null> {
+    const meta = await findResolvedStringVariable(names);
+    return meta?.variable ?? null;
   }
 
   function sortLibraryDescriptors(
@@ -612,6 +686,37 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
     frame.paddingLeft = r.value;
   }
 
+  async function applyFontFamilyToken(
+    node: TextNode,
+    tokenKey: TypographyFontFamilyTokenKey,
+    fallbackFontName: FontName
+  ): Promise<void> {
+    const token = TYPOGRAPHY_VARIABLE_TOKEN_MAP[tokenKey];
+    const resolved = await findResolvedStringVariable([...token.names]);
+
+    await figma.loadFontAsync(fallbackFontName);
+    node.fontName = fallbackFontName;
+
+    if (!resolved) {
+      console.warn('[StyleResolver] Font family token not found', tokenKey, token.names);
+      return;
+    }
+
+    console.log('[StyleResolver] Font family token resolved', {
+      tokenKey,
+      tokenName: resolved.tokenName,
+      source: resolved.source,
+      id: resolved.variable.id,
+      key: resolved.variable.key,
+    });
+
+    try {
+      node.setBoundVariable('fontFamily', resolved.variable);
+    } catch (error) {
+      console.warn('[StyleResolver] Cannot bind fontFamily variable', tokenKey, error);
+    }
+  }
+
   return {
     async init(): Promise<void> {
       indexLocalVariables();
@@ -621,6 +726,7 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
           useLibraryTokens: useLibrary,
           localColorVars: localColorVars.size,
           localColorVarList: localColorVarList.length,
+          localStringVarList: localStringVarList.length,
           localFloatVars: localFloatVars.size,
           libraryNameSlots: libraryByNormName.size,
         });
@@ -636,6 +742,8 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
     applyTextStyle,
     applyCornerRadius,
     applyPadding,
+    resolveStringVariable,
+    applyFontFamilyToken,
 
     getDebugSummary(): DebugResolutions {
       return { ...debug, textStyles: { ...debug.textStyles } };

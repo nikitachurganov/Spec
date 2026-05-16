@@ -1,6 +1,8 @@
 /// <reference types="@figma/plugin-typings" />
 
+import { applyParagraphFontFamilyToken } from '../tokens/applyTokens';
 import { normalizeTokenName } from '../tokens/styleResolver';
+import { getSpecBuildStyleContext } from '../tokens/specStyleContext';
 import { hexToRgb } from '../tokens/tokenMap';
 
 /** Совпадает с `SPECIFICATION_LAYOUT.width` в legacy. */
@@ -61,6 +63,10 @@ async function appendHeaderComponentNotFoundFallback(wrapper: FrameNode): Promis
     fallback.fontSize = 14;
     fallback.lineHeight = { unit: 'PERCENT', value: 130 };
     fallback.fills = [{ type: 'SOLID', color: hexToRgb('#8C8C8C') }];
+    const ctx = getSpecBuildStyleContext();
+    if (ctx?.resolver) {
+      await applyParagraphFontFamilyToken(fallback, HEADER_FALLBACK_FONT, ctx.resolver);
+    }
     wrapper.appendChild(fallback);
     tryStretchInAutoLayout(fallback);
   } catch (error) {

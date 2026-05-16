@@ -1,6 +1,12 @@
 /// <reference types="@figma/plugin-typings" />
 
-import { COLOR_TOKEN_MAP, SPEC_TOKEN_MAP, type ColorSemanticKey, hexToRgb, specColorFallbackRgb } from './tokenMap';
+import {
+  COLOR_TOKEN_MAP,
+  SPEC_TOKEN_MAP,
+  type ColorSemanticKey,
+  hexToRgb,
+  specColorFallbackRgb,
+} from './tokenMap';
 import type { StyleResolver } from './styleResolver';
 import { findByAliases, resolvedColorToSolidRgb } from './styleResolver';
 
@@ -106,11 +112,30 @@ export async function applySpecificationFrameTokens(
   await resolver.applyFill(frame, [...c.names], specColorFallbackRgb(c.fallback as Parameters<typeof specColorFallbackRgb>[0]));
 }
 
+export async function applyHeadingFontFamilyToken(
+  text: TextNode,
+  baseFont: FontName,
+  resolver: StyleResolver
+): Promise<void> {
+  await resolver.applyFontFamilyToken(text, 'headingFontFamily', baseFont);
+}
+
+export async function applyParagraphFontFamilyToken(
+  text: TextNode,
+  baseFont: FontName,
+  resolver: StyleResolver
+): Promise<void> {
+  await resolver.applyFontFamilyToken(text, 'paragraphFontFamily', baseFont);
+}
+
 export async function applySectionTitleTokens(text: TextNode, resolver: StyleResolver): Promise<void> {
   const ts = SPEC_TOKEN_MAP.textStyles.sectionTitle;
   const col = SPEC_TOKEN_MAP.colors.sectionTitle;
   await resolver.applyTextStyle(text, [...ts.names], ts.fallback);
   await resolver.applyFill(text, [...col.names], col.fallback);
+  const baseFont =
+    text.fontName === figma.mixed ? ts.fallback.fontName : text.fontName;
+  await applyHeadingFontFamilyToken(text, baseFont, resolver);
 }
 
 export async function applyContainersSectionTokens(

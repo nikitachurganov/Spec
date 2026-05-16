@@ -166,3 +166,27 @@ export const SPEC_TOKEN_MAP = {
     },
   },
 } as const;
+
+/**
+ * String variables для font family (библиотека Typography & Colors + короткие алиасы).
+ * `fallbackFontFamily` — запасное имя семейства, если переменная недоступна (с кодом обычно совмещают через `FontName.family`).
+ */
+export const TYPOGRAPHY_VARIABLE_TOKEN_MAP = {
+  headingFontFamily: {
+    names: [
+      'Typography & Colors/Font family/Heading',
+      'Font family/Heading',
+    ],
+    fallbackFontFamily: 'PT Sans',
+  },
+
+  paragraphFontFamily: {
+    names: [
+      'Typography & Colors/Font family/Paragraph',
+      'Font family/Paragraph',
+    ],
+    fallbackFontFamily: 'PT Sans',
+  },
+} as const;
+
+export type TypographyFontFamilyTokenKey = keyof typeof TYPOGRAPHY_VARIABLE_TOKEN_MAP;

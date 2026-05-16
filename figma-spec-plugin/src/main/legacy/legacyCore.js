@@ -1,6 +1,7 @@
 'use strict';
 
 import { assembleSpecificationWrapper, findDsTemplateHeader } from '../builders/specificationWrapper';
+import { getSpecBuildStyleContext } from '../tokens/specStyleContext';
 var FONT_PT_SANS_REGULAR = { family: 'PT Sans', style: 'Regular' };
 var FONT_PT_SANS_BOLD = { family: 'PT Sans', style: 'Bold' };
 
@@ -4206,7 +4207,28 @@ async function createTextNode(text, options) {
     t.textAlignHorizontal = options.textAlignHorizontal;
   }
 
+  await tryApplySpecFontFamily(t, options);
+
   return t;
+}
+
+async function tryApplySpecFontFamily(textNode, options) {
+  var ctx = getSpecBuildStyleContext();
+  if (!ctx || !ctx.apply || !ctx.resolver) return;
+  var base = options.fontName || textNode.fontName;
+  var role = options.fontFamilyRole;
+  if (role == null) {
+    role = 'paragraph';
+  }
+  try {
+    if (role === 'heading') {
+      await ctx.apply.applyHeadingFontFamilyToken(textNode, base, ctx.resolver);
+    } else {
+      await ctx.apply.applyParagraphFontFamilyToken(textNode, base, ctx.resolver);
+    }
+  } catch (e) {
+    console.warn('[Spec] font family token', e);
+  }
 }
 
 async function createSectionTitle(title, designTokens) {
@@ -4573,6 +4595,7 @@ async function createContainerCard(container, index, designTokens) {
 
   var titleOpts = {
     name: 'Container card title',
+    fontFamilyRole: 'heading',
     fontName: activeFontBold,
     fontSize: 16,
     lineHeight: { unit: 'PERCENT', value: 130 },
@@ -4701,6 +4724,7 @@ async function createSpecSection(containersSection) {
 
   var title = await createTextNode('Spec', {
     name: 'Spec section title',
+    fontFamilyRole: 'heading',
     fontName: activeFontRegular,
     fontSize: SECTION_TITLE_STYLE.fontSize,
     lineHeight: SECTION_TITLE_STYLE.lineHeight,
@@ -4739,6 +4763,7 @@ async function createAnatomySection(anatomyFrame) {
 
   var title = await createTextNode('Component anatomy', {
     name: 'Anatomy section title',
+    fontFamilyRole: 'heading',
     fontName: activeFontRegular,
     fontSize: SECTION_TITLE_STYLE.fontSize,
     lineHeight: SECTION_TITLE_STYLE.lineHeight,
@@ -5153,17 +5178,6 @@ async function generateSpecFrames(sections) {
           'Не удалось создать фреймы спецификации. Проверьте консоль плагина.',
       },
     });
-  }
-}
-
-var SPEC_BUILD_STYLE_CONTEXT_KEY = '__SPEC_BUILD_STYLE_CONTEXT_V1__';
-
-function getSpecBuildStyleContext() {
-  try {
-    if (typeof globalThis === 'undefined') return null;
-    return globalThis[SPEC_BUILD_STYLE_CONTEXT_KEY] || null;
-  } catch (e) {
-    return null;
   }
 }
 

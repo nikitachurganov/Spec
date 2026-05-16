@@ -57,3 +57,14 @@ export type ResolvedNumberToken = {
   key?: string;
   variable?: Variable | null;
 };
+
+export type ResolvedStringSource = 'local-variable' | 'library-variable' | 'fallback';
+
+export type ResolvedStringToken = {
+  name: string;
+  value: string;
+  source: ResolvedStringSource;
+  id?: string;
+  key?: string;
+  variable?: Variable | null;
+};
