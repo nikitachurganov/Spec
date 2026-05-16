@@ -1,5 +1,6 @@
 'use strict';
 
+import { assembleSpecificationWrapper, findDsTemplateHeader } from '../builders/specificationWrapper';
 var FONT_PT_SANS_REGULAR = { family: 'PT Sans', style: 'Regular' };
 var FONT_PT_SANS_BOLD = { family: 'PT Sans', style: 'Bold' };
 
@@ -5523,19 +5524,6 @@ async function buildSpecification(sections) {
 
     await tryApplySpecificationFrameTokens(specificationFrame);
 
-    if (sections.containers) {
-      var containersSection = await createContainersSection(
-        spec,
-        root,
-        designTokens,
-        sections
-      );
-
-      var specSection = await createSpecSection(containersSection);
-      specificationFrame.appendChild(specSection);
-      stretchInParent(specSection);
-    }
-
     if (sections.anatomy) {
       var propertyMetadata = await AnatomyGenerator.getComponentPropertyMetadata(
         root
@@ -5560,6 +5548,19 @@ async function buildSpecification(sections) {
       stretchInParent(anatomySection);
     }
 
+    if (sections.containers) {
+      var containersSection = await createContainersSection(
+        spec,
+        root,
+        designTokens,
+        sections
+      );
+
+      var specSection = await createSpecSection(containersSection);
+      specificationFrame.appendChild(specSection);
+      stretchInParent(specSection);
+    }
+
     if (specificationFrame.children.length === 0) {
       var placeholder = await createTextNode(
         'Не выбраны блоки для генерации.',
@@ -5575,18 +5576,25 @@ async function buildSpecification(sections) {
       stretchInParent(placeholder);
     }
 
-    specificationFrame.x = root.x + root.width + 120;
-    specificationFrame.y = root.y;
+    var dsHeaderComponent = findDsTemplateHeader();
+    var specificationRoot = await assembleSpecificationWrapper(
+      root.name,
+      specificationFrame,
+      dsHeaderComponent
+    );
 
-    figma.currentPage.appendChild(specificationFrame);
+    specificationRoot.x = root.x + root.width + 120;
+    specificationRoot.y = root.y;
 
-    figma.currentPage.selection = [specificationFrame];
-    figma.viewport.scrollAndZoomIntoView([specificationFrame]);
+    figma.currentPage.appendChild(specificationRoot);
+
+    figma.currentPage.selection = [specificationRoot];
+    figma.viewport.scrollAndZoomIntoView([specificationRoot]);
 
     figma.ui.postMessage({
       type: 'SPECIFICATION_BUILT',
       payload: {
-        name: specificationFrame.name,
+        name: specificationRoot.name,
       },
     });
   } catch (error) {
