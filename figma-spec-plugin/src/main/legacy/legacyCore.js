@@ -1,6 +1,10 @@
 'use strict';
 
 import { assembleSpecificationWrapper, findDsTemplateHeader } from '../builders/specificationWrapper';
+import { createSpecIcon } from '../icons/iconFactory';
+import { getPropertyIconNames } from '../icons/propertyIconResolver';
+import { getContainerPropertyRows } from '../spec/containerCardPropertyRows';
+import { getPaddingRows } from '../spec/paddingRows';
 import { getSpecBuildStyleContext } from '../tokens/specStyleContext';
 var FONT_PT_SANS_REGULAR = { family: 'PT Sans', style: 'Regular' };
 var FONT_PT_SANS_BOLD = { family: 'PT Sans', style: 'Bold' };
@@ -976,6 +980,7 @@ async function createPaddingValueSquare(tokenizedValue) {
     fontSize: 12,
     lineHeight: { unit: 'PERCENT', value: 130 },
     fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+    skipSpecFontFamily: true,
   });
 
   square.appendChild(text);
@@ -1118,6 +1123,7 @@ async function createGapValueSquare(tokenizedGap) {
     fontSize: 12,
     lineHeight: { unit: 'PERCENT', value: 130 },
     fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+    skipSpecFontFamily: true,
   });
 
   square.appendChild(text);
@@ -2100,6 +2106,10 @@ function capitalizeFirst(value) {
 
 function formatTokenWithValue(tokenizedValue) {
   if (!tokenizedValue) return '—';
+  var ctxSp = getSpecBuildStyleContext();
+  if (ctxSp && ctxSp.spacingTokenResolver && typeof tokenizedValue.value === 'number') {
+    return ctxSp.spacingTokenResolver.formatSpacingValue(tokenizedValue.value);
+  }
   var px = tokenizedValue.value + 'px';
   if (!tokenizedValue.token || tokenizedValue.token === 'custom') {
     return 'custom (' + px + ')';
@@ -2123,7 +2133,7 @@ function formatDirection(direction) {
 }
 
 function formatSizingModeOnly(sizing) {
-  if (!sizing || !sizing.mode) return 'Unknown';
+  if (!sizing || !sizing.mode) return 'None';
   switch (sizing.mode) {
     case 'fill':
       return 'Fill';
@@ -2132,7 +2142,7 @@ function formatSizingModeOnly(sizing) {
     case 'fixed':
       return 'Fixed';
     default:
-      return 'Unknown';
+      return 'None';
   }
 }
 
@@ -2141,8 +2151,8 @@ function formatAlignmentForContainer(container) {
   var primary = container.layout.primaryAxisAlignment;
   var counter = container.layout.counterAxisAlignment;
 
-  if (direction === 'none') return '—';
-  if (direction === 'grid') return '—';
+  if (direction === 'none') return 'None';
+  if (direction === 'grid') return 'None';
 
   function mapVertical(value) {
     if (value === 'MIN') return 'top';
@@ -2170,7 +2180,7 @@ function formatAlignmentForContainer(container) {
     horizontalPart = mapHorizontal(primary);
     verticalPart = mapVertical(counter);
   } else {
-    return '—';
+    return 'None';
   }
 
   if (verticalPart === 'center' && horizontalPart === 'center') {
@@ -2178,7 +2188,7 @@ function formatAlignmentForContainer(container) {
   }
 
   if (verticalPart === '—' && horizontalPart === '—') {
-    return '—';
+    return 'None';
   }
 
   if (verticalPart === '—') {
@@ -2192,33 +2202,14 @@ function formatAlignmentForContainer(container) {
   return capitalizeFirst(verticalPart + ' ' + horizontalPart);
 }
 
-function hasAnyPadding(padding) {
-  return Boolean(
-    padding &&
-      padding.top &&
-      padding.right &&
-      padding.bottom &&
-      padding.left &&
-      (padding.top.value !== 0 ||
-        padding.right.value !== 0 ||
-        padding.bottom.value !== 0 ||
-        padding.left.value !== 0)
-  );
-}
-
-function createPaddingRows(container) {
-  var padding = container.padding;
-
-  if (!hasAnyPadding(padding)) {
-    return [{ label: 'Padding', value: 'None' }];
+function formatGapForSpec(container) {
+  var g = container.spacing && container.spacing.gap;
+  if (!g || g.value === 0) return 'None';
+  var ctxSp = getSpecBuildStyleContext();
+  if (ctxSp && ctxSp.spacingTokenResolver) {
+    return ctxSp.spacingTokenResolver.formatSpacingValue(g.value);
   }
-
-  return [
-    { label: 'Padding-left', value: formatTokenWithValue(padding.left) },
-    { label: 'Padding-top', value: formatTokenWithValue(padding.top) },
-    { label: 'Padding-right', value: formatTokenWithValue(padding.right) },
-    { label: 'Padding-bottom', value: formatTokenWithValue(padding.bottom) },
-  ];
+  return formatTokenWithValue(g);
 }
 
 function formatRequired(required) {
@@ -3628,8 +3619,8 @@ var AnatomyGenerator = (function () {
     return connector;
   }
 
-  function createAnatomyPointer(index, side, geometry, options) {
-    var marker = createMarker(index, options);
+  async function createAnatomyPointer(index, side, geometry, options) {
+    var marker = await createMarker(index, options);
     var connector = createConnectorForSide(index, side, options);
 
     var pointer = figma.createFrame();
@@ -3676,6 +3667,22 @@ var AnatomyGenerator = (function () {
     return pointer;
   }
 
+  async function applyAnatomyMarkerTextInverse(textNode) {
+    var ctx = getSpecBuildStyleContext();
+    if (!ctx || !ctx.apply || !ctx.resolver) return;
+    try {
+      await figma.loadFontAsync(textNode.fontName);
+      await ctx.apply.applySemanticColorKey(
+        textNode,
+        'textInverse',
+        ctx.resolver,
+        'fill'
+      );
+    } catch (e) {
+      console.warn('[Anatomy] marker text inverse', e);
+    }
+  }
+
   function createAnatomyText(content, opts) {
     var t = figma.createText();
     t.name = opts.name || 'Anatomy text';
@@ -3696,7 +3703,7 @@ var AnatomyGenerator = (function () {
     return t;
   }
 
-  function createMarker(index, options) {
+  async function createMarker(index, options) {
     var frame = figma.createFrame();
     frame.name = 'Anatomy marker / ' + index;
     frame.layoutMode = 'HORIZONTAL';
@@ -3717,8 +3724,9 @@ var AnatomyGenerator = (function () {
     frame.strokes = [];
     frame.clipsContent = false;
 
+    await figma.loadFontAsync(options.fontBold);
     var label = createAnatomyText(String(index), {
-      name: 'Anatomy marker label',
+      name: 'Anatomy marker number',
       fontName: options.fontBold,
       fontSize: 12,
       lineHeight: { unit: 'PERCENT', value: 130 },
@@ -3730,6 +3738,7 @@ var AnatomyGenerator = (function () {
       ],
     });
 
+    await applyAnatomyMarkerTextInverse(label);
     frame.appendChild(label);
     return frame;
   }
@@ -3930,7 +3939,7 @@ var AnatomyGenerator = (function () {
         alignmentLines,
         merged
       );
-      var pointer = createAnatomyPointer(
+      var pointer = await createAnatomyPointer(
         pointerData.item.index,
         pointerData.side,
         geometry,
@@ -4207,7 +4216,9 @@ async function createTextNode(text, options) {
     t.textAlignHorizontal = options.textAlignHorizontal;
   }
 
-  await tryApplySpecFontFamily(t, options);
+  if (!options.skipSpecFontFamily) {
+    await tryApplySpecFontFamily(t, options);
+  }
 
   return t;
 }
@@ -4242,7 +4253,227 @@ async function createSectionTitle(title, designTokens) {
   });
 }
 
-async function createPropertyRow(label, value, designTokens, dim) {
+/**
+ * Горизонтальная группа: иконки (если есть) + текст значения. Для контейнерной карточки.
+ */
+async function createPropertyValueGroup(
+  propertyName,
+  propertyValue,
+  iconContext,
+  designTokens,
+  dim,
+  enableIcons
+) {
+  dim = dim || {};
+  var rowWidth = dim.rowWidth != null ? dim.rowWidth : INNER_ROW_WIDTH;
+  var labelWidth = dim.labelWidth != null ? dim.labelWidth : PROP_LABEL_WIDTH;
+  var gapBetween = getDesignSpaces(designTokens).medium;
+  var valueWidth =
+    dim.valueWidth != null ? dim.valueWidth : rowWidth - labelWidth - gapBetween;
+
+  var PROPERTY_ICON_GAP = 4;
+  var PROPERTY_ICON_SIZE = 16;
+
+  var specStyleCtx = getSpecBuildStyleContext();
+  var styleResolver = specStyleCtx && specStyleCtx.resolver;
+
+  var iconNames = [];
+  if (enableIcons !== false) {
+    try {
+      iconNames = getPropertyIconNames(
+        String(propertyName),
+        String(propertyValue),
+        iconContext || undefined
+      );
+    } catch (e) {
+      console.warn('[Spec] property value group icons', e);
+    }
+  }
+
+  var nIcons = iconNames.length;
+  var iconsChainW =
+    nIcons > 0 ? nIcons * (PROPERTY_ICON_GAP + PROPERTY_ICON_SIZE) : 0;
+  var valueTextW = Math.max(1, valueWidth - iconsChainW);
+
+  var lh130 = { unit: 'PERCENT', value: 130 };
+
+  var valueNode = await createTextNode(String(propertyValue), {
+    name: 'Property value',
+    fontName: activeFontRegular,
+    fontSize: 14,
+    lineHeight: lh130,
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }],
+    width: valueTextW,
+  });
+  await tryApplyTextPrimary(valueNode);
+
+  var valueGroup = createFrameNode('Property value group', {
+    fills: [],
+    strokes: [],
+    layoutMode: 'HORIZONTAL',
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'AUTO',
+    itemSpacing: PROPERTY_ICON_GAP,
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+    width: valueWidth,
+    counterAxisAlignItems: 'CENTER',
+    primaryAxisAlignItems: 'MIN',
+    clipsContent: false,
+  });
+
+  var ix;
+  for (ix = 0; ix < iconNames.length; ix++) {
+    var iconName = iconNames[ix];
+    try {
+      var svgPart = await createSpecIcon(iconName, styleResolver);
+      if (svgPart) {
+        valueGroup.appendChild(svgPart);
+      }
+    } catch (oneIconErr) {
+      console.warn('[Spec] property icon', oneIconErr);
+    }
+  }
+
+  valueNode.resize(valueTextW, valueNode.height);
+  valueGroup.appendChild(valueNode);
+
+  return valueGroup;
+}
+
+async function createBaseContainerPropertyRow(rowData, designTokens, dim) {
+  dim = dim || {};
+  var rowWidth = dim.rowWidth != null ? dim.rowWidth : INNER_ROW_WIDTH;
+  var labelWidth = dim.labelWidth != null ? dim.labelWidth : PROP_LABEL_WIDTH;
+
+  var row = createFrameNode('Property row / ' + rowData.name, {
+    fills: [],
+    layoutMode: 'HORIZONTAL',
+    primaryAxisSizingMode: 'FIXED',
+    counterAxisSizingMode: 'AUTO',
+    itemSpacing: 12,
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+    width: rowWidth,
+    counterAxisAlignItems: 'CENTER',
+    primaryAxisAlignItems: 'SPACE_BETWEEN',
+    clipsContent: false,
+  });
+
+  try {
+    row.layoutAlign = 'STRETCH';
+  } catch (stretchErr) {
+    console.warn('[Spec] Cannot stretch Property row', rowData.name, stretchErr);
+  }
+
+  var lh130 = { unit: 'PERCENT', value: 130 };
+  var labelNode = await createTextNode(rowData.name + ':', {
+    name: 'Property label',
+    fontName: activeFontRegular,
+    fontSize: 14,
+    lineHeight: lh130,
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.labelText }],
+    width: labelWidth,
+  });
+  await tryApplyLabelTextTertiary(labelNode);
+  labelNode.resize(labelWidth, labelNode.height);
+
+  var valueGroup = await createPropertyValueGroup(
+    rowData.name,
+    rowData.value,
+    rowData.iconContext,
+    designTokens,
+    dim,
+    true
+  );
+
+  try {
+    valueGroup.layoutGrow = 1;
+  } catch (_growVg) {}
+
+  row.appendChild(labelNode);
+  row.appendChild(valueGroup);
+  return row;
+}
+
+async function createPaddingContainerPropertyRow(rowData, designTokens, dim) {
+  dim = dim || {};
+  var rowWidth = dim.rowWidth != null ? dim.rowWidth : INNER_ROW_WIDTH;
+  var labelWidth = dim.labelWidth != null ? dim.labelWidth : PROP_LABEL_WIDTH;
+
+  var row = createFrameNode('Property row / Padding', {
+    fills: [],
+    layoutMode: 'HORIZONTAL',
+    primaryAxisSizingMode: 'FIXED',
+    counterAxisSizingMode: 'AUTO',
+    itemSpacing: 12,
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+    width: rowWidth,
+    counterAxisAlignItems: 'MIN',
+    primaryAxisAlignItems: 'SPACE_BETWEEN',
+    clipsContent: false,
+  });
+
+  try {
+    row.layoutAlign = 'STRETCH';
+  } catch (stretchErr) {
+    console.warn('[Spec] Cannot stretch Property row / Padding', stretchErr);
+  }
+
+  var lh130 = { unit: 'PERCENT', value: 130 };
+  var labelNode = await createTextNode('Padding:', {
+    name: 'Property label',
+    fontName: activeFontRegular,
+    fontSize: 14,
+    lineHeight: lh130,
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.labelText }],
+    width: labelWidth,
+  });
+  await tryApplyLabelTextTertiary(labelNode);
+  labelNode.resize(labelWidth, labelNode.height);
+
+  var valueStack = createFrameNode('Property value stack', {
+    fills: [],
+    strokes: [],
+    layoutMode: 'VERTICAL',
+    primaryAxisSizingMode: 'AUTO',
+    counterAxisSizingMode: 'AUTO',
+    itemSpacing: 4,
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+    counterAxisAlignItems: 'MIN',
+    primaryAxisAlignItems: 'MIN',
+    clipsContent: false,
+  });
+
+  try {
+    valueStack.layoutGrow = 1;
+  } catch (_growStack) {}
+
+  var groups = rowData.valueGroups;
+  var gi;
+  for (gi = 0; gi < groups.length; gi++) {
+    var g = groups[gi];
+    var vg = await createPropertyValueGroup(g.name, g.value, undefined, designTokens, dim, true);
+    vg.name = 'Property value group / ' + g.name;
+    valueStack.appendChild(vg);
+  }
+
+  row.appendChild(labelNode);
+  row.appendChild(valueStack);
+  return row;
+}
+
+async function createPropertyRow(label, value, designTokens, dim, containerForIcons, iconContext) {
   dim = dim || {};
   var rowWidth = dim.rowWidth != null ? dim.rowWidth : INNER_ROW_WIDTH;
   var labelWidth = dim.labelWidth != null ? dim.labelWidth : PROP_LABEL_WIDTH;
@@ -4264,6 +4495,7 @@ async function createPropertyRow(label, value, designTokens, dim) {
     width: rowWidth,
     counterAxisAlignItems: 'MIN',
     primaryAxisAlignItems: 'MIN',
+    clipsContent: false,
   });
 
   var isContainerPropRow =
@@ -4273,7 +4505,7 @@ async function createPropertyRow(label, value, designTokens, dim) {
   var lh130 = { unit: 'PERCENT', value: 130 };
 
   var labelNode;
-  var valueNode;
+  var valueSlot;
 
   if (isContainerPropRow) {
     labelNode = await createTextNode(labelText, {
@@ -4285,15 +4517,31 @@ async function createPropertyRow(label, value, designTokens, dim) {
       width: labelWidth,
     });
     await tryApplyLabelTextTertiary(labelNode);
-    valueNode = await createTextNode(String(value), {
-      name: 'Property value',
-      fontName: activeFontRegular,
-      fontSize: 14,
-      lineHeight: lh130,
-      fills: [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }],
-      width: valueWidth,
-    });
-    await tryApplyTextPrimary(valueNode);
+    labelNode.resize(labelWidth, labelNode.height);
+
+    try {
+      valueSlot = await createPropertyValueGroup(
+        String(label),
+        String(value),
+        iconContext || undefined,
+        designTokens,
+        dim,
+        !!containerForIcons
+      );
+    } catch (vgErr) {
+      console.warn('[Spec] property value group', vgErr);
+      var fallbackVal = await createTextNode(String(value), {
+        name: 'Property value',
+        fontName: activeFontRegular,
+        fontSize: 14,
+        lineHeight: lh130,
+        fills: [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }],
+        width: valueWidth,
+      });
+      await tryApplyTextPrimary(fallbackVal);
+      fallbackVal.resize(valueWidth, fallbackVal.height);
+      valueSlot = fallbackVal;
+    }
   } else {
     var dt = designTokens || { textStyles: {} };
     var bodyStyle =
@@ -4333,17 +4581,18 @@ async function createPropertyRow(label, value, designTokens, dim) {
       valOpts.fallbackSolidColor = SPEC_COLORS.textPrimary;
     }
 
-    valueNode = await createTextNode(String(value), valOpts);
+    var valueNode = await createTextNode(String(value), valOpts);
     if (!bodyStyle) {
       await tryApplyTextPrimary(valueNode);
     }
+
+    labelNode.resize(labelWidth, labelNode.height);
+    valueNode.resize(valueWidth, valueNode.height);
+    valueSlot = valueNode;
   }
 
-  labelNode.resize(labelWidth, labelNode.height);
-  valueNode.resize(valueWidth, valueNode.height);
-
   row.appendChild(labelNode);
-  row.appendChild(valueNode);
+  row.appendChild(valueSlot);
   return row;
 }
 
@@ -4640,42 +4889,30 @@ async function createContainerCard(container, index, designTokens) {
     SPEC_COLORS.containerCardBg
   );
 
-  content.appendChild(
-    await createPropertyRow(
-      'Direction',
-      formatDirection(container.layout.direction),
-      designTokens,
-      propDim
-    )
-  );
-  content.appendChild(
-    await createPropertyRow(
-      'Alignment',
-      formatAlignmentForContainer(container),
-      designTokens,
-      propDim
-    )
-  );
-  content.appendChild(
-    await createPropertyRow(
-      'Width',
-      formatSizingModeOnly(container.sizing.width),
-      designTokens,
-      propDim
-    )
-  );
+  var dirDisplay = formatDirection(container.layout.direction);
 
-  var padRows = createPaddingRows(container);
+  var specStyleForSpacing = getSpecBuildStyleContext();
 
-  for (var pj = 0; pj < padRows.length; pj++) {
-    content.appendChild(
-      await createPropertyRow(
-        padRows[pj].label,
-        padRows[pj].value,
-        designTokens,
-        propDim
-      )
-    );
+  var specRows = getContainerPropertyRows({
+    directionDisplay: dirDisplay,
+    alignmentDisplay: formatAlignmentForContainer(container),
+    widthDisplay: formatSizingModeOnly(container.sizing.width),
+    heightDisplay: formatSizingModeOnly(container.sizing.height),
+    gapDisplay: formatGapForSpec(container),
+    paddingValueGroups: getPaddingRows(
+      container,
+      specStyleForSpacing && specStyleForSpacing.spacingTokenResolver
+    ),
+  });
+
+  var ri;
+  for (ri = 0; ri < specRows.length; ri++) {
+    var rd = specRows[ri];
+    if (rd.type === 'padding') {
+      content.appendChild(await createPaddingContainerPropertyRow(rd, designTokens, propDim));
+    } else {
+      content.appendChild(await createBaseContainerPropertyRow(rd, designTokens, propDim));
+    }
   }
 
   if (container.warnings && container.warnings.length) {
@@ -5456,6 +5693,18 @@ async function tryApplyAnatomySemanticColors(root) {
         await ctx.apply.applySemanticColorKey(
           n,
           'anatomyConnector',
+          ctx.resolver,
+          'fill'
+        );
+        continue;
+      }
+      if (n.type === 'TEXT' && name.indexOf('Anatomy marker number') === 0) {
+        try {
+          await figma.loadFontAsync(n.fontName);
+        } catch (_lf) {}
+        await ctx.apply.applySemanticColorKey(
+          n,
+          'textInverse',
           ctx.resolver,
           'fill'
         );

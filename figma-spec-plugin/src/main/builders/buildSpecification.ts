@@ -2,6 +2,7 @@ import type { PluginSettings } from '../../shared/settings';
 import { buildSpecification as legacyBuildSpecification } from '../legacy/legacyCore.js';
 import { applyContainerPreviewCardTokens } from './buildContainerPreviewCard';
 import * as specApply from '../tokens/applyTokens';
+import { createSpacingTokenResolver } from '../tokens/spacingTokenResolver';
 import { createStyleResolver } from '../tokens/styleResolver';
 import { setSpecBuildStyleContext } from '../tokens/specStyleContext';
 
@@ -16,8 +17,11 @@ export async function buildSpecification(settings: PluginSettings): Promise<void
     useLibraryTokens: settings.useLibraryTokens !== false,
   });
   await resolver.init();
+  const spacingTokenResolver = await createSpacingTokenResolver();
+  await spacingTokenResolver.init();
   setSpecBuildStyleContext({
     resolver,
+    spacingTokenResolver,
     apply: {
       ...specApply,
       applyContainerPreviewCardTokens,

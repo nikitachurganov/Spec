@@ -33,6 +33,12 @@ export const COLOR_TOKEN_MAP = {
     fallback: '#FFFFFF',
   },
 
+  /** Icon vectors in property rows (not the same as text inverse). */
+  backgroundPrimaryInverse: {
+    names: ['Background/Primary-inverse'],
+    fallback: '#FFFFFF',
+  },
+
   textPrimary: {
     names: ['Text/Primary'],
     fallback: '#1F1F1F',

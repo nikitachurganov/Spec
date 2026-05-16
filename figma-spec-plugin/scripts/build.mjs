@@ -61,7 +61,9 @@ await esbuild.build({
   format: 'iife',
   platform: 'browser',
   target: 'es2017',
-  logLevel: 'info',
+  loader: {
+    '.svg': 'text',
+  },
   define: {
     __html__: JSON.stringify(html),
   },

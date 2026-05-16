@@ -2,12 +2,15 @@
 
 import type { StyleResolver } from './styleResolver';
 import type { ColorSemanticKey } from './tokenMap';
+import type { SpacingTokenResolver } from './spacingTokenResolver';
 
 /** Key shared with `legacyCore.js` (string must match exactly). */
 export const SPEC_BUILD_STYLE_CONTEXT_KEY = '__SPEC_BUILD_STYLE_CONTEXT_V1__';
 
 export type SpecBuildStyleContext = {
   resolver: StyleResolver;
+  /** Имена spacing-токенов для текста Padding/Gap (библиотека + fallback). */
+  spacingTokenResolver?: SpacingTokenResolver;
   apply: {
     applySpecificationFrameTokens(frame: FrameNode, r: StyleResolver): Promise<void>;
     applySectionTitleTokens(text: TextNode, r: StyleResolver): Promise<void>;
