@@ -64,16 +64,12 @@ var SPECIFICATION_LAYOUT = {
 };
 
 var SPEC_COLORS = {
-  /** Фон корневого фрейма Specification / … */
-  specificationBg: hexToRgb('#FFFFFF'),
-  /** Фон секций вроде Containers section */
-  sectionBg: hexToRgb('#F7F7F7'),
+  /** Background/Primary — Containers section, Anatomy container (fallback до токенов) */
+  backgroundPrimary: hexToRgb('#FFFFFF'),
+  /** Background/Secondary — корень Specification / …, Container preview card (fallback) */
+  backgroundSecondary: hexToRgb('#F7F7F7'),
   /** Заголовки блоков Spec / Component anatomy */
   sectionTitle: hexToRgb('#1F1F1F'),
-  /** Фон обёртки вокруг визуальной анатомии */
-  anatomyContainerBg: hexToRgb('#F7F7F7'),
-  /** Фон блока Containers section */
-  containersSectionBg: hexToRgb('#F7F7F7'),
   pageBg: { r: 0.96, g: 0.96, b: 0.96 },
   cardBg: { r: 1, g: 1, b: 1 },
   containerCardBg: hexToRgb('#FFFFFF'),
@@ -1573,12 +1569,6 @@ async function createContainerPreviewCard(container, root, designTokens, section
     clipsContent: false,
     effects: SPEC_EFFECTS.cardShadow,
   });
-
-  applyFillToken(
-    card,
-    designTokens.colors.cardBackground,
-    SPEC_COLORS.sectionBg
-  );
 
   try {
     card.strokes = [];
@@ -4768,7 +4758,7 @@ async function createAnatomySection(anatomyFrame) {
     paddingBottom: 0,
     paddingLeft: 0,
     cornerRadius: 16,
-    fills: [{ type: 'SOLID', color: SPEC_COLORS.anatomyContainerBg }],
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.backgroundPrimary }],
     strokes: [],
     clipsContent: false,
   });
@@ -4797,7 +4787,7 @@ async function createAnatomySection(anatomyFrame) {
 
 async function createContainersSection(spec, root, designTokens, sections) {
   var section = createFrameNode('Containers section', {
-    fills: [{ type: 'SOLID', color: SPEC_COLORS.sectionBg }],
+    fills: [{ type: 'SOLID', color: SPEC_COLORS.backgroundPrimary }],
     strokes: [],
     layoutMode: 'VERTICAL',
     itemSpacing: 24,
@@ -5526,7 +5516,7 @@ async function buildSpecification(sections) {
     specificationFrame.paddingBottom = SPECIFICATION_LAYOUT.padding;
     specificationFrame.paddingLeft = SPECIFICATION_LAYOUT.padding;
     specificationFrame.fills = [
-      { type: 'SOLID', color: SPEC_COLORS.specificationBg },
+      { type: 'SOLID', color: SPEC_COLORS.backgroundSecondary },
     ];
     specificationFrame.strokes = [];
     specificationFrame.clipsContent = false;

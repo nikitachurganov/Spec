@@ -1,8 +1,8 @@
 /// <reference types="@figma/plugin-typings" />
 
-import { COLOR_TOKEN_MAP, SPEC_TOKEN_MAP, type ColorSemanticKey, hexToRgb } from './tokenMap';
+import { COLOR_TOKEN_MAP, SPEC_TOKEN_MAP, type ColorSemanticKey, hexToRgb, specColorFallbackRgb } from './tokenMap';
 import type { StyleResolver } from './styleResolver';
-import { findByAliases } from './styleResolver';
+import { findByAliases, resolvedColorToSolidRgb } from './styleResolver';
 
 type ColorTokenDef = {
   readonly names: readonly string[];
@@ -20,11 +20,12 @@ export async function resolveSemanticSolidPaint(
   const def = COLOR_TOKEN_MAP[key] as ColorTokenDef;
   const rgb = hexToRgb(def.fallback);
   const r = await resolver.resolveColor([...def.names], rgb);
+  const solidRgb = resolvedColorToSolidRgb(r, rgb, null);
   const op = opacity !== undefined ? opacity : def.fallbackOpacity;
   const base: SolidPaint =
     op != null && op !== 1
-      ? { type: 'SOLID', color: r.value, opacity: op }
-      : { type: 'SOLID', color: r.value };
+      ? { type: 'SOLID', color: solidRgb, opacity: op }
+      : { type: 'SOLID', color: solidRgb };
   const setBound = figma.variables?.setBoundVariableForPaint;
   if (r.variable && typeof setBound === 'function') {
     try {
@@ -101,8 +102,8 @@ export async function applySpecificationFrameTokens(
   frame: FrameNode,
   resolver: StyleResolver
 ): Promise<void> {
-  const c = SPEC_TOKEN_MAP.colors.specificationBg;
-  await resolver.applyFill(frame, [...c.names], c.fallback);
+  const c = SPEC_TOKEN_MAP.colors.backgroundSecondary;
+  await resolver.applyFill(frame, [...c.names], specColorFallbackRgb(c.fallback as Parameters<typeof specColorFallbackRgb>[0]));
 }
 
 export async function applySectionTitleTokens(text: TextNode, resolver: StyleResolver): Promise<void> {
@@ -116,34 +117,26 @@ export async function applyContainersSectionTokens(
   frame: FrameNode,
   resolver: StyleResolver
 ): Promise<void> {
-  const bg = SPEC_TOKEN_MAP.colors.sectionBg;
-  await resolver.applyFill(frame, [...bg.names], bg.fallback);
+  const bg = SPEC_TOKEN_MAP.colors.backgroundPrimary;
+  await resolver.applyFill(frame, [...bg.names], specColorFallbackRgb(bg.fallback as Parameters<typeof specColorFallbackRgb>[0]));
 }
 
 export async function applyAnatomyContainerTokens(
   frame: FrameNode,
   resolver: StyleResolver
 ): Promise<void> {
-  const bg = SPEC_TOKEN_MAP.colors.sectionBg;
-  await resolver.applyFill(frame, [...bg.names], bg.fallback);
+  const bg = SPEC_TOKEN_MAP.colors.backgroundPrimary;
+  await resolver.applyFill(frame, [...bg.names], specColorFallbackRgb(bg.fallback as Parameters<typeof specColorFallbackRgb>[0]));
 }
 
 export async function applyContainerCardTokens(frame: FrameNode, resolver: StyleResolver): Promise<void> {
   const bg = SPEC_TOKEN_MAP.colors.containerCard;
   const stroke = SPEC_TOKEN_MAP.colors.divider;
-  await resolver.applyFill(frame, [...bg.names], bg.fallback);
+  await resolver.applyFill(frame, [...bg.names], specColorFallbackRgb(bg.fallback as Parameters<typeof specColorFallbackRgb>[0]));
   try {
     frame.strokeWeight = 1;
-    await resolver.applyStroke(frame, [...stroke.names], stroke.fallback);
+    await resolver.applyStroke(frame, [...stroke.names], specColorFallbackRgb(stroke.fallback as Parameters<typeof specColorFallbackRgb>[0]));
   } catch {
     /* ignore */
   }
-}
-
-export async function applyContainerPreviewCardTokens(
-  frame: FrameNode,
-  resolver: StyleResolver
-): Promise<void> {
-  const bg = SPEC_TOKEN_MAP.colors.sectionBg;
-  await resolver.applyFill(frame, [...bg.names], bg.fallback);
 }

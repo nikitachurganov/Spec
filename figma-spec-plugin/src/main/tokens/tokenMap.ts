@@ -10,6 +10,11 @@ export function hexToRgb(hex: string): RGB {
   return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 };
 }
 
+/** Fallback в SPEC_TOKEN_MAP: hex (`#RRGGBB`) или уже RGB. */
+export function specColorFallbackRgb(fallback: RGB | `#${string}`): RGB {
+  return typeof fallback === 'string' ? hexToRgb(fallback) : fallback;
+}
+
 const interRegular: FontName = { family: 'Inter', style: 'Regular' };
 const interBold: FontName = { family: 'Inter', style: 'Bold' };
 
@@ -104,13 +109,18 @@ export type ColorSemanticKey = keyof typeof COLOR_TOKEN_MAP;
 /** Каркас спеки: только цвета и текстовые стили (отступы/радиус — числа в legacy). */
 export const SPEC_TOKEN_MAP = {
   colors: {
-    specificationBg: {
-      names: ['Background/Primary', 'background/primary', 'Background/Default'],
-      fallback: hexToRgb('#FFFFFF'),
+    backgroundPrimary: {
+      names: ['Background/Primary'],
+      fallback: '#FFFFFF',
     },
-    sectionBg: {
-      names: ['Background/Secondary', 'background/secondary'],
-      fallback: hexToRgb('#F7F7F7'),
+    backgroundSecondary: {
+      names: ['Background/Secondary'],
+      preferredCollectionNames: [
+        'Typography & Colors',
+        'Colors',
+        'Primitives',
+      ] as const,
+      fallback: '#F7F7F7',
     },
     sectionTitle: {
       names: ['Text/Primary', 'Foreground/Primary', 'text/primary'],

@@ -28,18 +28,32 @@ export type NumberTokenRef = {
   fallback: number;
 };
 
-export type ResolvedToken<T> = {
+/** Источник для заливок: локальный paint style → local-paint-style. */
+export type ResolvedColorSource =
+  | 'local-paint-style'
+  | 'local-variable'
+  | 'library-variable'
+  | 'fallback';
+
+export type ResolvedColorToken = {
   name: string;
-  value: T;
-  source: 'local-style' | 'local-variable' | 'library-variable' | 'fallback';
+  value: RGB;
+  source: ResolvedColorSource;
   id?: string;
   key?: string;
-};
-
-export type ResolvedColorToken = ResolvedToken<RGB> & {
   variable?: Variable | null;
 };
 
-export type ResolvedNumberToken = ResolvedToken<number> & {
+export type ResolvedNumberSource =
+  | 'local-variable'
+  | 'library-variable'
+  | 'fallback';
+
+export type ResolvedNumberToken = {
+  name: string;
+  value: number;
+  source: ResolvedNumberSource;
+  id?: string;
+  key?: string;
   variable?: Variable | null;
 };
