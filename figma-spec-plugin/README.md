@@ -16,6 +16,14 @@ npm run build
 
 This runs Vite (React → `dist/ui.html` + assets) then esbuild (`src/main/code.ts` + legacy core → `dist/code.js`) with `__html__` injected from the built `dist/ui.html`.
 
+**Figma error `ENOENT … dist/code.js`:** the `dist/` folder is not committed (see `.gitignore`). Run `npm run build` after `npm install`. If Node.js is not installed yet, you can bootstrap legacy files into `dist/` once (no npm dependencies):
+
+```bash
+node scripts/bootstrap-dist-legacy.mjs
+```
+
+That copies root `code.js` / `ui.html` into `dist/` so the plugin loads; use `npm run build` when you work on `src/`.
+
 ## Typecheck
 
 ```bash
