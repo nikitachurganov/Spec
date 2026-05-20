@@ -1,31 +1,62 @@
 /// <reference types="@figma/plugin-typings" />
 
 import { getNodeBoundsRelativeToRoot } from '../figma/nodeBounds';
+import { loadFontOnce } from '../figma/text';
 import type { OverlayGeometryContext, Rect } from './overlayGeometry';
 import {
   getHorizontalGapOverlayRect,
-  getVerticalGapOverlayRect,
   getInnerBounds,
+  getVerticalGapOverlayRect,
   roundRect,
 } from './overlayGeometry';
 import type { TokenizedSpacingValue } from './paddingOverlay';
-import { createGapOverlayAutoLayout } from './spacingOverlaySide';
+import {
+  applyGapMeasureFill,
+  applyGapOverlayStroke,
+  applyGapValueSquareFill,
+  applyValueSquareLabelInverse,
+} from './overlayStyles';
 
 export type GapOverlayBounds = Rect & {
-  /** `horizontal` = strip between vertical children (analog Top/Bottom). `vertical` = strip between horizontal children (analog Left/Right). */
-  orientation: 'horizontal' | 'vertical';
+  /** `vertical` = strip between horizontal children. `horizontal` = strip between vertical children. */
+  orientation: 'vertical' | 'horizontal';
 };
+
+export type GapOverlayOrientation = GapOverlayBounds['orientation'];
 
 export type PreviewContainerForGap = {
   layout?: { direction?: string };
   spacing?: { gap?: TokenizedSpacingValue | null };
 };
 
-/** Container layout → gap strip orientation. */
-export function getGapStripOrientation(
-  containerLayoutDirection: 'vertical' | 'horizontal'
-): 'horizontal' | 'vertical' {
-  return containerLayoutDirection === 'horizontal' ? 'vertical' : 'horizontal';
+export type GapOverlayPaddingValues = {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+};
+
+export type GapOverlayItemParams = {
+  index: number;
+  orientation: GapOverlayOrientation;
+  targetBounds: Rect;
+  gapRect: Rect;
+  paddingValues: GapOverlayPaddingValues;
+  valueLabel: string;
+};
+
+const FONT_REGULAR: FontName = { family: 'PT Sans', style: 'Regular' };
+const VALUE_SQUARE_HEIGHT = 20;
+const GAP_VALUE_SQUARE_OFFSET_Y = 24;
+const GAP_OVERLAY_SPACER = 20;
+
+function createZeroPointFrame(): FrameNode {
+  const frame = figma.createFrame();
+  frame.name = 'Zero point';
+  frame.fills = [];
+  frame.strokes = [];
+  frame.resize(0, 0);
+  return frame;
 }
 
 function getVisibleLayoutChildren(node: SceneNode): SceneNode[] {
@@ -91,88 +122,181 @@ export function getGapBoundsBetweenChildrenRelativeToRoot(
   return null;
 }
 
-function normalizeGapBounds(bounds: GapOverlayBounds): GapOverlayBounds {
-  const normalized: GapOverlayBounds = {
-    ...roundRect({
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height,
-    }),
-    orientation: bounds.orientation,
-  };
+/** Overlay strip aligned to target content box (padding inset). */
+function computeGapOverlayRect(params: GapOverlayItemParams): Rect {
+  const { orientation, targetBounds, gapRect, paddingValues } = params;
+  const gap = roundRect(gapRect);
+  const innerBounds = getInnerBounds(targetBounds, paddingValues);
 
-  const minSize = 8;
-
-  if (
-    bounds.orientation === 'vertical' &&
-    normalized.width > 0 &&
-    normalized.width < minSize
-  ) {
-    const delta = minSize - normalized.width;
-    normalized.x -= delta / 2;
-    normalized.width = minSize;
+  if (orientation === 'vertical') {
+    return getVerticalGapOverlayRect(gap, innerBounds);
   }
 
-  if (
-    bounds.orientation === 'horizontal' &&
-    normalized.height > 0 &&
-    normalized.height < minSize
-  ) {
-    const delta = minSize - normalized.height;
-    normalized.y -= delta / 2;
-    normalized.height = minSize;
+  return getHorizontalGapOverlayRect(gap, innerBounds);
+}
+
+async function createGapMeasureFill(bounds: Rect): Promise<FrameNode> {
+  const frame = figma.createFrame();
+  frame.name = 'Gap measure fill';
+  frame.fills = [];
+  frame.strokes = [];
+  frame.clipsContent = false;
+  frame.resize(
+    Math.max(1, Math.round(bounds.width)),
+    Math.max(1, Math.round(bounds.height))
+  );
+  await applyGapMeasureFill(frame);
+  return frame;
+}
+
+function applyGapMeasureFillLayout(frame: FrameNode, isVerticalStrip: boolean): void {
+  try {
+    frame.layoutGrow = isVerticalStrip ? 1 : 0;
+  } catch {
+    /* ignore */
+  }
+  try {
+    frame.layoutAlign = 'STRETCH';
+  } catch {
+    /* ignore */
+  }
+}
+
+async function createGapValueSquare(valueLabel: string): Promise<FrameNode> {
+  const square = figma.createFrame();
+  square.name = 'Gap value square';
+  square.layoutMode = 'HORIZONTAL';
+  square.primaryAxisAlignItems = 'CENTER';
+  square.counterAxisAlignItems = 'CENTER';
+  square.primaryAxisSizingMode = 'AUTO';
+  square.counterAxisSizingMode = 'FIXED';
+  square.paddingLeft = 4;
+  square.paddingRight = 4;
+  square.paddingTop = 0;
+  square.paddingBottom = 0;
+  square.itemSpacing = 0;
+  square.cornerRadius = 4;
+  square.clipsContent = false;
+  square.fills = [];
+  square.strokes = [];
+
+  await applyGapValueSquareFill(square);
+
+  await loadFontOnce(FONT_REGULAR);
+  const text = figma.createText();
+  text.name = 'Gap value text';
+  text.fontName = FONT_REGULAR;
+  text.fontSize = 12;
+  text.lineHeight = { unit: 'PERCENT', value: 130 };
+  text.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  text.characters = valueLabel || '—';
+  text.textAlignHorizontal = 'CENTER';
+  text.textAlignVertical = 'CENTER';
+  square.appendChild(text);
+  await applyValueSquareLabelInverse(text);
+
+  square.resize(Math.max(20, Math.round(square.width)), VALUE_SQUARE_HEIGHT);
+
+  return square;
+}
+
+function positionGapValueSquare(
+  square: FrameNode,
+  overlayWidth: number,
+  overlayHeight: number,
+  isVerticalStrip: boolean
+): void {
+  try {
+    square.layoutPositioning = 'ABSOLUTE';
+  } catch {
+    /* ignore */
   }
 
-  return normalized;
+  if (isVerticalStrip) {
+    square.x = Math.round(overlayWidth / 2 - square.width / 2);
+    square.y = -GAP_VALUE_SQUARE_OFFSET_Y;
+    return;
+  }
+
+  square.x = -GAP_VALUE_SQUARE_OFFSET_Y;
+  square.y = Math.round(overlayHeight / 2 - square.height / 2);
 }
 
 /**
- * Single gap zone — Auto Layout analog of Padding overlay side.
+ * Reference layout: narrow strip, semi-transparent fill, side outline stroke, label above center (y = -24).
  */
-export async function createGapOverlayItem(
-  index: number,
-  bounds: GapOverlayBounds,
-  tokenizedGap: TokenizedSpacingValue,
-  geometry: OverlayGeometryContext
-): Promise<FrameNode | null> {
-  if (bounds.width <= 0 || bounds.height <= 0) return null;
+export async function createGapOverlayItem(params: GapOverlayItemParams): Promise<FrameNode | null> {
+  const gapRect = roundRect(params.gapRect);
+  if (gapRect.width <= 0 || gapRect.height <= 0) return null;
 
-  const gapNum = Number(tokenizedGap?.value);
-  if (!tokenizedGap || Number.isNaN(gapNum) || gapNum <= 0) return null;
+  const overlayRect = computeGapOverlayRect(params);
+  const innerBounds = getInnerBounds(params.targetBounds, params.paddingValues);
+  const isVerticalStrip = params.orientation === 'vertical';
+  const paddingTopOverlayHeight = Math.max(0, Math.round(params.paddingValues.top));
 
-  const normalizedBounds = normalizeGapBounds(bounds);
-  const orientation = normalizedBounds.orientation;
+  const contentHeight = Math.max(1, innerBounds.height);
+  const measuredAreaWidth = Math.max(1, innerBounds.width);
+  const paddingBottomOverlayWidth = Math.max(
+    1,
+    Math.round(params.targetBounds.width + GAP_OVERLAY_SPACER)
+  );
 
-  const measureRect = roundRect({
-    x: normalizedBounds.x,
-    y: normalizedBounds.y,
-    width: normalizedBounds.width,
-    height: normalizedBounds.height,
+  let overlayWidth = Math.max(1, overlayRect.width);
+  let overlayHeight = Math.max(1, overlayRect.height);
+  let overlayX = overlayRect.x;
+  let overlayY = overlayRect.y;
+  let overlayPaddingTop = 0;
+  let overlayPaddingLeft = 0;
+  let overlayPaddingRight = 0;
+
+  if (isVerticalStrip) {
+    overlayHeight = contentHeight + GAP_OVERLAY_SPACER + paddingTopOverlayHeight;
+    overlayY = innerBounds.y - GAP_OVERLAY_SPACER - paddingTopOverlayHeight;
+    overlayPaddingTop = paddingTopOverlayHeight;
+  } else {
+    overlayWidth = paddingBottomOverlayWidth;
+    overlayX = Math.round(params.targetBounds.x - GAP_OVERLAY_SPACER);
+    overlayPaddingLeft = Math.max(0, Math.round(params.paddingValues.left));
+    overlayPaddingRight = Math.max(0, Math.round(params.paddingValues.right));
+  }
+
+  const overlay = figma.createFrame();
+  overlay.name = `Gap overlay / ${params.index + 1}`;
+  overlay.layoutMode = isVerticalStrip ? 'VERTICAL' : 'HORIZONTAL';
+  overlay.primaryAxisSizingMode = 'FIXED';
+  overlay.counterAxisSizingMode = 'FIXED';
+  overlay.primaryAxisAlignItems = 'MIN';
+  overlay.counterAxisAlignItems = 'CENTER';
+  overlay.itemSpacing = GAP_OVERLAY_SPACER;
+  overlay.paddingTop = overlayPaddingTop;
+  overlay.paddingRight = overlayPaddingRight;
+  overlay.paddingBottom = 0;
+  overlay.paddingLeft = overlayPaddingLeft;
+  overlay.fills = [];
+  overlay.strokes = [];
+  overlay.clipsContent = false;
+  overlay.x = overlayX;
+  overlay.y = overlayY;
+  overlay.resize(overlayWidth, overlayHeight);
+
+  await applyGapOverlayStroke(overlay, isVerticalStrip ? 'vertical' : 'horizontal');
+
+  const zeroPoint = createZeroPointFrame();
+  const measureFill = await createGapMeasureFill({
+    x: 0,
+    y: 0,
+    width: isVerticalStrip ? overlayWidth : measuredAreaWidth,
+    height: isVerticalStrip ? contentHeight : Math.max(1, overlayRect.height),
   });
+  const valueSquare = await createGapValueSquare(params.valueLabel);
 
-  const { targetBounds, padding } = geometry;
-  const overlayRect =
-    orientation === 'vertical'
-      ? getVerticalGapOverlayRect(measureRect, targetBounds)
-      : getHorizontalGapOverlayRect(measureRect, targetBounds);
+  overlay.appendChild(zeroPoint);
+  overlay.appendChild(measureFill);
+  applyGapMeasureFillLayout(measureFill, isVerticalStrip);
+  overlay.appendChild(valueSquare);
+  positionGapValueSquare(valueSquare, overlayWidth, overlayHeight, isVerticalStrip);
 
-  const result = await createGapOverlayAutoLayout({
-    index,
-    orientation,
-    overlayRect,
-    measureRect,
-    tokenizedValue: tokenizedGap,
-    paddingValues: {
-      top: padding.top,
-      right: padding.right,
-      bottom: padding.bottom,
-      left: padding.left,
-    },
-    paddingValueAnchors: geometry.paddingValueAnchors,
-  });
-
-  return result?.node ?? null;
+  return overlay;
 }
 
 export async function createGapOverlaysForTarget(
@@ -194,9 +318,17 @@ export async function createGapOverlaysForTarget(
 
   const { targetClone, rootClone, targetBounds, padding } = geometry;
   const innerBounds = getInnerBounds(targetBounds, padding);
+  const paddingValues: GapOverlayPaddingValues = {
+    top: padding.top,
+    right: padding.right,
+    bottom: padding.bottom,
+    left: padding.left,
+  };
 
   const children = getVisibleLayoutChildren(targetClone);
   if (children.length < 2) return overlays;
+
+  const valueLabel = String(Math.round(gapNum));
 
   for (let i = 0; i < children.length - 1; i++) {
     const bounds = getGapBoundsBetweenChildrenRelativeToRoot(
@@ -209,7 +341,15 @@ export async function createGapOverlaysForTarget(
 
     if (!bounds) continue;
 
-    const item = await createGapOverlayItem(i, bounds, tokenizedGap, geometry);
+    const item = await createGapOverlayItem({
+      index: i,
+      orientation: bounds.orientation,
+      targetBounds,
+      gapRect: bounds,
+      paddingValues,
+      valueLabel,
+    });
+
     if (item) overlays.push(item);
   }
 

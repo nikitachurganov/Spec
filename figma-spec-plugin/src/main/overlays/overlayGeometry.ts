@@ -118,23 +118,23 @@ export function computePaddingValueSquareAnchors(params: {
   };
 }
 
-/** Vertical gap overlay spans full target height at gap column (analog Padding / Left). */
-export function getVerticalGapOverlayRect(measureRect: Rect, targetBounds: Rect): Rect {
+/** Vertical gap strip: gap column width, full inner (content) height. */
+export function getVerticalGapOverlayRect(measureRect: Rect, innerBounds: Rect): Rect {
   return roundRect({
     x: measureRect.x,
-    y: targetBounds.y,
-    width: measureRect.width,
-    height: targetBounds.height,
+    y: innerBounds.y,
+    width: Math.max(1, measureRect.width),
+    height: Math.max(1, innerBounds.height),
   });
 }
 
-/** Horizontal gap overlay spans full target width at gap row (analog Padding / Top). */
-export function getHorizontalGapOverlayRect(measureRect: Rect, targetBounds: Rect): Rect {
+/** Horizontal gap strip: full inner (content) width, gap row height. */
+export function getHorizontalGapOverlayRect(measureRect: Rect, innerBounds: Rect): Rect {
   return roundRect({
-    x: targetBounds.x,
+    x: innerBounds.x,
     y: measureRect.y,
-    width: targetBounds.width,
-    height: measureRect.height,
+    width: Math.max(1, innerBounds.width),
+    height: Math.max(1, measureRect.height),
   });
 }
 
