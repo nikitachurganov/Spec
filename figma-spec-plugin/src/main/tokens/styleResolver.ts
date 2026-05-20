@@ -1,5 +1,13 @@
 /// <reference types="@figma/plugin-typings" />
 
+import { debugLog } from '../debug';
+import { loadFontOnce } from '../figma/text';
+import {
+  getLocalPaintStylesSafe,
+  getLocalTextStylesSafe,
+  preloadLocalStylesCache,
+} from '../figma/localStyles';
+import { getLocalVariablesSafe } from '../figma/variables';
 import type {
   ResolvedColorToken,
   ResolvedNumberToken,
@@ -93,7 +101,13 @@ type DebugResolutions = {
 };
 
 function specDebugEnabled(): boolean {
-  return typeof process !== 'undefined' && process.env?.FIGMA_SPEC_DEBUG === '1';
+  return (
+    (typeof process !== 'undefined' && process.env?.FIGMA_SPEC_DEBUG === '1') || false
+  );
+}
+
+function cacheKey(names: readonly string[], suffix = ''): string {
+  return `${names.map(normalizeTokenName).join('|')}${suffix}`;
 }
 
 function debugResolvedColorToken(
@@ -231,6 +245,13 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
   const localFloatVars = new Map<string, Variable>();
   const libraryByNormName = new Map<string, LibraryVarDescriptor[]>();
   const importedByKey = new Map<string, Variable>();
+  const colorTokenCache = new Map<string, ResolvedColorToken>();
+  const numberTokenCache = new Map<string, ResolvedNumberToken>();
+  const fontFamilyTokenCache = new Map<
+    TypographyFontFamilyTokenKey,
+    ResolvedStringVarMeta | null
+  >();
+  let initialized = false;
 
   const debug: DebugResolutions = {
     colors: {},
@@ -243,25 +264,25 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
     console.warn('[StyleResolver] Token not found, fallback used', kind, names.join(' | '));
   }
 
-  function indexLocalVariables(): void {
+  async function indexLocalVariables(): Promise<void> {
     localColorVarList.length = 0;
     localStringVarList.length = 0;
-    try {
-      const vars = figma.variables.getLocalVariables();
-      for (const v of vars) {
-        const k = normalizeTokenName(v.name);
-        if (v.resolvedType === 'COLOR') {
-          localColorVarList.push(v);
-          localColorVars.set(k, v);
-        }
-        if (v.resolvedType === 'STRING') {
-          localStringVarList.push(v);
-          localStringVars.set(k, v);
-        }
-        if (v.resolvedType === 'FLOAT') localFloatVars.set(k, v);
+    localColorVars.clear();
+    localStringVars.clear();
+    localFloatVars.clear();
+
+    const vars = await getLocalVariablesSafe();
+    for (const v of vars) {
+      const k = normalizeTokenName(v.name);
+      if (v.resolvedType === 'COLOR') {
+        localColorVarList.push(v);
+        localColorVars.set(k, v);
       }
-    } catch (e) {
-      console.warn('[StyleResolver] getLocalVariables failed', e);
+      if (v.resolvedType === 'STRING') {
+        localStringVarList.push(v);
+        localStringVars.set(k, v);
+      }
+      if (v.resolvedType === 'FLOAT') localFloatVars.set(k, v);
     }
   }
 
@@ -458,10 +479,15 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
     colorOptions?: ResolveColorOptions
   ): Promise<ResolvedColorToken> {
     const pref = colorOptions?.preferredCollectionNames;
+    const key =
+      cacheKey(names) +
+      (pref?.length ? `|${pref.map(normalizeTokenName).join(',')}` : '');
+    const cached = colorTokenCache.get(key);
+    if (cached) return cached;
 
     const vLocal = findLocalColorVar(names);
     if (vLocal) {
-      return {
+      const resolved: ResolvedColorToken = {
         name: vLocal.name,
         value: fallback,
         source: 'local-variable',
@@ -469,11 +495,13 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
         key: vLocal.key,
         variable: vLocal,
       };
+      colorTokenCache.set(key, resolved);
+      return resolved;
     }
 
     const vLib = await importLibraryVar(names, 'COLOR', pref);
     if (vLib) {
-      return {
+      const resolved: ResolvedColorToken = {
         name: vLib.name,
         value: fallback,
         source: 'library-variable',
@@ -481,9 +509,11 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
         key: vLib.key,
         variable: vLib,
       };
+      colorTokenCache.set(key, resolved);
+      return resolved;
     }
 
-    const styles = figma.getLocalPaintStyles();
+    const styles = await getLocalPaintStylesSafe();
     const exactStyle = findExactByTokenName(styles, names);
     let style =
       exactStyle &&
@@ -496,23 +526,35 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
     if (style && style.paints.length) {
       const p = style.paints[0];
       if (p.type === 'SOLID') {
-        return {
+        const resolved: ResolvedColorToken = {
           name: style.name,
           value: p.color,
           source: 'local-paint-style',
           id: style.id,
         };
+        colorTokenCache.set(key, resolved);
+        return resolved;
       }
     }
 
     warnFallback('color', names);
-    return { name: names[0] ?? 'color', value: fallback, source: 'fallback' };
+    const resolved: ResolvedColorToken = {
+      name: names[0] ?? 'color',
+      value: fallback,
+      source: 'fallback',
+    };
+    colorTokenCache.set(key, resolved);
+    return resolved;
   }
 
   async function resolveNumber(names: string[], fallback: number): Promise<ResolvedNumberToken> {
+    const key = cacheKey(names);
+    const cached = numberTokenCache.get(key);
+    if (cached) return cached;
+
     const vLocal = findLocalFloatVar(names);
     if (vLocal) {
-      return {
+      const resolved: ResolvedNumberToken = {
         name: vLocal.name,
         value: fallback,
         source: 'local-variable',
@@ -520,11 +562,13 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
         key: vLocal.key,
         variable: vLocal,
       };
+      numberTokenCache.set(key, resolved);
+      return resolved;
     }
 
     const vLib = await importLibraryVar(names, 'FLOAT');
     if (vLib) {
-      return {
+      const resolved: ResolvedNumberToken = {
         name: vLib.name,
         value: fallback,
         source: 'library-variable',
@@ -532,16 +576,25 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
         key: vLib.key,
         variable: vLib,
       };
+      numberTokenCache.set(key, resolved);
+      return resolved;
     }
 
     warnFallback('number', names);
-    return { name: names[0] ?? 'number', value: fallback, source: 'fallback' };
+    const resolved: ResolvedNumberToken = {
+      name: names[0] ?? 'number',
+      value: fallback,
+      source: 'fallback',
+    };
+    numberTokenCache.set(key, resolved);
+    return resolved;
   }
 
   async function resolveTextStyle(names: string[]): Promise<TextStyle | null> {
-    const exact = findExactByTokenName(figma.getLocalTextStyles(), names);
+    const styles = await getLocalTextStylesSafe();
+    const exact = findExactByTokenName(styles, names);
     if (exact) return exact;
-    return findByAliases(figma.getLocalTextStyles(), names);
+    return findByAliases(styles, names);
   }
 
   async function applyFill(
@@ -628,7 +681,7 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
     const style = await resolveTextStyle(names);
     if (style) {
       try {
-        await figma.loadFontAsync(style.fontName);
+        await loadFontOnce(style.fontName);
         node.textStyleId = style.id;
         debug.textStyles[names[0] ?? 'text'] = 'local-style';
         return;
@@ -637,7 +690,7 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
       }
     }
 
-    await figma.loadFontAsync(fallback.fontName);
+    await loadFontOnce(fallback.fontName);
     node.fontName = fallback.fontName;
     node.fontSize = fallback.fontSize;
     node.lineHeight = fallback.lineHeight;
@@ -692,9 +745,13 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
     fallbackFontName: FontName
   ): Promise<void> {
     const token = TYPOGRAPHY_VARIABLE_TOKEN_MAP[tokenKey];
-    const resolved = await findResolvedStringVariable([...token.names]);
+    let resolved = fontFamilyTokenCache.get(tokenKey);
+    if (resolved === undefined) {
+      resolved = await findResolvedStringVariable([...token.names]);
+      fontFamilyTokenCache.set(tokenKey, resolved);
+    }
 
-    await figma.loadFontAsync(fallbackFontName);
+    await loadFontOnce(fallbackFontName);
     node.fontName = fallbackFontName;
 
     if (!resolved) {
@@ -702,7 +759,7 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
       return;
     }
 
-    console.log('[StyleResolver] Font family token resolved', {
+    debugLog('[StyleResolver] Font family token resolved', {
       tokenKey,
       tokenName: resolved.tokenName,
       source: resolved.source,
@@ -719,10 +776,12 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
 
   return {
     async init(): Promise<void> {
-      indexLocalVariables();
+      if (initialized) return;
+      await Promise.all([indexLocalVariables(), preloadLocalStylesCache()]);
       if (useLibrary) await loadLibraryVariables();
+      initialized = true;
       if (specDebugEnabled()) {
-        console.log('[StyleResolver] init', {
+        debugLog('[StyleResolver] init', {
           useLibraryTokens: useLibrary,
           localColorVars: localColorVars.size,
           localColorVarList: localColorVarList.length,

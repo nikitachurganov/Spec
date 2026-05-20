@@ -1,8 +1,11 @@
 import type { PluginSettings } from '../../shared/settings';
+import { debugLog } from '../debug';
 import { buildSpecification as legacyBuildSpecification } from '../legacy/legacyCore.js';
 import { applyContainerPreviewCardTokens } from './buildContainerPreviewCard';
 import * as specApply from '../tokens/applyTokens';
 import { createSpacingTokenResolver } from '../tokens/spacingTokenResolver';
+import { ensureDocumentReadyForTraversal } from '../figma/documentAccess';
+import { clearLocalStylesCache } from '../figma/localStyles';
 import { createStyleResolver } from '../tokens/styleResolver';
 import { setSpecBuildStyleContext } from '../tokens/specStyleContext';
 
@@ -13,6 +16,8 @@ import { setSpecBuildStyleContext } from '../tokens/specStyleContext';
  * Внешний wrapper: при `header === true` — `.DS-Template-header/Default` + `Specification / …`.
  */
 export async function buildSpecification(settings: PluginSettings): Promise<void> {
+  await ensureDocumentReadyForTraversal();
+  clearLocalStylesCache();
   const resolver = createStyleResolver({
     useLibraryTokens: settings.useLibraryTokens !== false,
   });
@@ -34,7 +39,7 @@ export async function buildSpecification(settings: PluginSettings): Promise<void
       process.env &&
       process.env.FIGMA_SPEC_DEBUG === '1'
     ) {
-      console.log('[StyleResolver] Tokens resolved', resolver.getDebugSummary());
+      debugLog('[StyleResolver] Tokens resolved', resolver.getDebugSummary());
     }
   } finally {
     setSpecBuildStyleContext(undefined);

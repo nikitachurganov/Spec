@@ -214,3 +214,135 @@ body {
   color: rgba(51, 51, 51, 0.75);
   min-height: 16px;
 }
+
+.spec-layer-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.spec-layer-settings__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.spec-layer-settings__subheader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.spec-layer-settings__title {
+  margin: 0;
+  color: #333333;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 130%;
+}
+
+.spec-layer-settings__label {
+  color: #333333;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 14px;
+  line-height: 130%;
+}
+
+.spec-layer-settings__refresh,
+.spec-layer-settings__reset {
+  border: none;
+  background: transparent;
+  color: #fc8507;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.spec-layer-settings__refresh:disabled,
+.spec-layer-settings__reset:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.spec-layer-settings__hint {
+  margin: 0;
+  color: #8c8c8c;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 12px;
+  line-height: 130%;
+}
+
+.spec-layer-settings__hint--error {
+  color: #7f1d1d;
+}
+
+.spec-layer-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #eae8e8;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.spec-layer-row {
+  min-height: 36px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #eae8e8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.spec-layer-row:last-child {
+  border-bottom: none;
+}
+
+.spec-layer-row[data-disabled='true'] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.spec-layer-row__checkbox {
+  flex: 0 0 auto;
+}
+
+.spec-layer-row__name {
+  color: #333333;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 14px;
+  line-height: 130%;
+}
+
+.spec-layer-row__meta {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.spec-layer-row__type {
+  color: #8c8c8c;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 12px;
+  line-height: 130%;
+}
+
+.spec-layer-row__badge {
+  border-radius: 999px;
+  padding: 2px 6px;
+  background: #f7f7f7;
+  color: #8c8c8c;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 11px;
+  line-height: 130%;
+}

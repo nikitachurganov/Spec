@@ -5,12 +5,14 @@ import {
   withHiddenSpecificationPreferences,
   type PluginSettings,
 } from '@shared/settings';
-import type { MainToUiMessage } from '@shared/messages';
+import type { MainToUiMessage, SpecLayerOption } from '@shared/messages';
 import { postToMain } from './postToMain';
 import { SettingsPanel } from './components/SettingsPanel';
 import { StatusMessage } from './components/StatusMessage';
 
 const NO_BLOCKS_ERROR = 'Выберите хотя бы один блок спецификации.';
+const SPEC_LAYER_EMPTY_HINT =
+  'Выберите компонент или фрейм, чтобы настроить слои для Spec.';
 
 function isMainMessage(data: unknown): data is MainToUiMessage {
   if (!data || typeof data !== 'object') return false;
@@ -31,9 +33,21 @@ export function App() {
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  const [specLayerOptions, setSpecLayerOptions] = useState<SpecLayerOption[]>([]);
+  const [specLayerOptionsLoading, setSpecLayerOptionsLoading] = useState(false);
+  const [specLayerOptionsError, setSpecLayerOptionsError] = useState<string | null>(null);
+  const [autoSelectedLayerPaths, setAutoSelectedLayerPaths] = useState<string[]>([]);
+
+  const requestSpecLayerOptions = useCallback(() => {
+    setSpecLayerOptionsLoading(true);
+    setSpecLayerOptionsError(null);
+    postToMain({ type: 'GET_SPEC_LAYER_OPTIONS' });
+  }, []);
+
   useEffect(() => {
     postToMain({ type: 'GET_SETTINGS' });
-  }, []);
+    requestSpecLayerOptions();
+  }, [requestSpecLayerOptions]);
 
   useEffect(() => {
     function onWindowMessage(event: MessageEvent) {
@@ -46,6 +60,26 @@ export function App() {
       }
 
       if (data.type === 'READY') {
+        return;
+      }
+
+      if (data.type === 'SPEC_LAYER_OPTIONS_LOADED') {
+        setSpecLayerOptionsLoading(false);
+        setSpecLayerOptionsError(null);
+        setSpecLayerOptions(data.payload.options);
+        setAutoSelectedLayerPaths(data.payload.autoSelectedLayerPaths);
+        setSettings((prev) => ({
+          ...prev,
+          specSelectedLayerPaths: data.payload.selectedLayerPaths,
+        }));
+        return;
+      }
+
+      if (data.type === 'SPEC_LAYER_OPTIONS_ERROR') {
+        setSpecLayerOptionsLoading(false);
+        setSpecLayerOptions([]);
+        setAutoSelectedLayerPaths([]);
+        setSpecLayerOptionsError(data.payload.message || SPEC_LAYER_EMPTY_HINT);
         return;
       }
 
@@ -70,6 +104,25 @@ export function App() {
     window.addEventListener('message', onWindowMessage);
     return () => window.removeEventListener('message', onWindowMessage);
   }, []);
+
+  const handleSpecLayerSelectionChange = useCallback((selectedLayerPaths: string[]) => {
+    setSettings((prev) => ({
+      ...prev,
+      specSelectedLayerPaths: selectedLayerPaths,
+    }));
+    postToMain({
+      type: 'SAVE_SPEC_SELECTED_LAYERS',
+      payload: { selectedLayerPaths },
+    });
+  }, []);
+
+  const handleResetSpecLayersToAuto = useCallback(() => {
+    const paths =
+      autoSelectedLayerPaths.length > 0
+        ? autoSelectedLayerPaths
+        : specLayerOptions.filter((o) => o.isAutoSelected && o.isSelectable).map((o) => o.path);
+    handleSpecLayerSelectionChange(paths);
+  }, [autoSelectedLayerPaths, specLayerOptions, handleSpecLayerSelectionChange]);
 
   const handleGenerate = useCallback(() => {
     if (busy) return;
@@ -114,7 +167,17 @@ export function App() {
       </header>
 
       <main className="app-content">
-        <SettingsPanel settings={settings} onChange={setSettings} />
+        <SettingsPanel
+          settings={settings}
+          onChange={setSettings}
+          specLayerOptions={specLayerOptions}
+          specLayerOptionsLoading={specLayerOptionsLoading}
+          specLayerOptionsError={specLayerOptionsError}
+          specLayerEmptyHint={SPEC_LAYER_EMPTY_HINT}
+          onSpecLayerSelectionChange={handleSpecLayerSelectionChange}
+          onRefreshSpecLayers={requestSpecLayerOptions}
+          onResetSpecLayersToAuto={handleResetSpecLayersToAuto}
+        />
         {error ? <StatusMessage text={error} variant="error" /> : null}
         {!error && status ? <StatusMessage text={status} variant="success" /> : null}
       </main>

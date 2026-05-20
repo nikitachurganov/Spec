@@ -7,6 +7,9 @@ import {
   hexToRgb,
   specColorFallbackRgb,
 } from './tokenMap';
+import { getLocalEffectStylesSafe } from '../figma/localStyles';
+import { loadFontOnce } from '../figma/text';
+import { formatPluginError } from '../figma/variables';
 import type { StyleResolver } from './styleResolver';
 import { findByAliases, resolvedColorToSolidRgb } from './styleResolver';
 
@@ -61,7 +64,8 @@ export async function applySemanticEffectFill(
     );
     return;
   }
-  const fx = findByAliases(figma.getLocalEffectStyles(), [...def.names]);
+  const effectStyles = await getLocalEffectStylesSafe();
+  const fx = findByAliases(effectStyles, [...def.names]);
   if (fx) {
     try {
       frame.effectStyleId = fx.id;
@@ -131,11 +135,36 @@ export async function applyParagraphFontFamilyToken(
 export async function applySectionTitleTokens(text: TextNode, resolver: StyleResolver): Promise<void> {
   const ts = SPEC_TOKEN_MAP.textStyles.sectionTitle;
   const col = SPEC_TOKEN_MAP.colors.sectionTitle;
-  await resolver.applyTextStyle(text, [...ts.names], ts.fallback);
-  await resolver.applyFill(text, [...col.names], col.fallback);
-  const baseFont =
-    text.fontName === figma.mixed ? ts.fallback.fontName : text.fontName;
-  await applyHeadingFontFamilyToken(text, baseFont, resolver);
+
+  try {
+    await resolver.applyTextStyle(text, [...ts.names], ts.fallback);
+  } catch (error) {
+    console.warn('[applyTokens] section title text style:', formatPluginError(error));
+    try {
+      await loadFontOnce(ts.fallback.fontName);
+      text.fontName = ts.fallback.fontName;
+      text.fontSize = ts.fallback.fontSize;
+      text.lineHeight = ts.fallback.lineHeight;
+      text.fills = ts.fallback.fills;
+    } catch (fallbackErr) {
+      console.warn('[applyTokens] section title text fallback:', formatPluginError(fallbackErr));
+    }
+  }
+
+  try {
+    await resolver.applyFill(text, [...col.names], col.fallback);
+  } catch (error) {
+    console.warn('[applyTokens] section title fill:', formatPluginError(error));
+    text.fills = [{ type: 'SOLID', color: col.fallback }];
+  }
+
+  try {
+    const baseFont =
+      text.fontName === figma.mixed ? ts.fallback.fontName : (text.fontName as FontName);
+    await applyHeadingFontFamilyToken(text, baseFont, resolver);
+  } catch (error) {
+    console.warn('[applyTokens] section title font family:', formatPluginError(error));
+  }
 }
 
 export async function applyContainersSectionTokens(

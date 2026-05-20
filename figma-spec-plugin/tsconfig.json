@@ -12,7 +12,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noImplicitAny": true,
-    "types": ["@figma/plugin-typings", "vite/client", "node"],
+    "typeRoots": ["./node_modules/@types", "./node_modules/@figma"],
     "paths": {
       "@shared": ["./src/shared"],
       "@shared/*": ["./src/shared/*"]

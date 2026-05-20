@@ -5,6 +5,7 @@ import type { StyleResolver } from '../tokens/styleResolver';
 import { COLOR_TOKEN_MAP, hexToRgb } from '../tokens/tokenMap';
 
 const PROPERTY_ICON_SIZE = 16;
+const missingIconWarnings = new Set<string>();
 
 function getVectorNodesInsideIcon(node: SceneNode): Array<SceneNode & GeometryMixin> {
   const result: Array<SceneNode & GeometryMixin> = [];
@@ -45,7 +46,10 @@ export async function createSpecIcon(
   const svg = SPEC_ICON_REGISTRY[iconName];
 
   if (!svg || typeof svg !== 'string') {
-    console.warn('[SpecIcon] SVG not found or not string', iconName, svg);
+    if (!missingIconWarnings.has(iconName)) {
+      console.warn('[SpecIcon] SVG not found for icon', iconName);
+      missingIconWarnings.add(iconName);
+    }
     return null;
   }
 

@@ -76,12 +76,12 @@ export const COLOR_TOKEN_MAP = {
 
   gapValueFill: {
     names: ['Background/Error-main'],
-    fallback: '#F34747',
+    fallback: '#FF5C52',
   },
 
   gapMeasureFill: {
     names: ['Effects/Button red shadow/20'],
-    fallback: '#F34747',
+    fallback: '#FF5C52',
     fallbackOpacity: 0.2,
     tokenType: 'effect',
   },

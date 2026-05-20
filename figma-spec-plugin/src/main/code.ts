@@ -6,6 +6,7 @@ import type { UiToMainMessage } from '../shared/messages';
 import { postToUi } from './postToUi';
 import { PLUGIN_UI_SIZE, STORAGE_KEY_SETTINGS } from '../shared/constants';
 import { DEFAULT_PLUGIN_SETTINGS, type PluginSettings } from '../shared/settings';
+import { handleGetSpecLayerOptions } from './spec/handleSpecLayerOptions';
 
 declare const __html__: string;
 
@@ -57,6 +58,37 @@ figma.ui.onmessage = async (raw: unknown) => {
         const settings = normalizePluginSettings(message.payload.settings);
         await saveStoredSettings(settings);
         await buildSpecification(settings);
+        break;
+      }
+      case 'GET_SPEC_LAYER_OPTIONS': {
+        const settings = await loadStoredSettings();
+        const result = await handleGetSpecLayerOptions(settings);
+        if (!result.ok) {
+          postToUi({
+            type: 'SPEC_LAYER_OPTIONS_ERROR',
+            payload: { message: result.message },
+          });
+          break;
+        }
+        postToUi({
+          type: 'SPEC_LAYER_OPTIONS_LOADED',
+          payload: {
+            rootName: result.rootName,
+            options: result.options,
+            selectedLayerPaths: result.selectedLayerPaths,
+            autoSelectedLayerPaths: result.autoSelectedLayerPaths,
+          },
+        });
+        break;
+      }
+      case 'SAVE_SPEC_SELECTED_LAYERS': {
+        const current = await loadStoredSettings();
+        const next = normalizePluginSettings({
+          ...current,
+          specSelectedLayerPaths: message.payload.selectedLayerPaths,
+        });
+        await saveStoredSettings(next);
+        postToUi({ type: 'SETTINGS_LOADED', payload: { settings: next } });
         break;
       }
       default:

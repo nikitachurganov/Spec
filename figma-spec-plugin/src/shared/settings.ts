@@ -3,6 +3,9 @@ export type PluginSettings = {
   componentAnatomy: boolean;
   spec: boolean;
 
+  /** Paths from root as index segments joined by `/`, e.g. `1`, `1/0`, `1/2/0` */
+  specSelectedLayerPaths: string[];
+
   variants: boolean;
   behavior: boolean;
   usageScenarios: boolean;
@@ -20,6 +23,8 @@ export const DEFAULT_PLUGIN_SETTINGS: PluginSettings = {
   header: true,
   componentAnatomy: true,
   spec: true,
+
+  specSelectedLayerPaths: [],
 
   variants: false,
   behavior: false,

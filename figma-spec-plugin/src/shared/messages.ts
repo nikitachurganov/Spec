@@ -1,5 +1,16 @@
 import type { PluginSettings } from './settings';
 
+export type SpecLayerOption = {
+  path: string;
+  name: string;
+  type: string;
+  depth: number;
+  parentPath?: string;
+  isAutoSelected: boolean;
+  isSelectable: boolean;
+  isComponentBoundary: boolean;
+};
+
 export type BuildSpecificationMessage = {
   type: 'BUILD_SPECIFICATION';
   payload: {
@@ -18,10 +29,23 @@ export type SaveSettingsMessage = {
   };
 };
 
+export type GetSpecLayerOptionsMessage = {
+  type: 'GET_SPEC_LAYER_OPTIONS';
+};
+
+export type SaveSpecSelectedLayersMessage = {
+  type: 'SAVE_SPEC_SELECTED_LAYERS';
+  payload: {
+    selectedLayerPaths: string[];
+  };
+};
+
 export type UiToMainMessage =
   | BuildSpecificationMessage
   | GetSettingsMessage
-  | SaveSettingsMessage;
+  | SaveSettingsMessage
+  | GetSpecLayerOptionsMessage
+  | SaveSpecSelectedLayersMessage;
 
 export type SpecificationBuiltMessage = {
   type: 'SPECIFICATION_BUILT';
@@ -44,6 +68,23 @@ export type SettingsLoadedMessage = {
   };
 };
 
+export type SpecLayerOptionsLoadedMessage = {
+  type: 'SPEC_LAYER_OPTIONS_LOADED';
+  payload: {
+    rootName: string;
+    options: SpecLayerOption[];
+    selectedLayerPaths: string[];
+    autoSelectedLayerPaths: string[];
+  };
+};
+
+export type SpecLayerOptionsErrorMessage = {
+  type: 'SPEC_LAYER_OPTIONS_ERROR';
+  payload: {
+    message: string;
+  };
+};
+
 export type ReadyMessage = {
   type: 'READY';
 };
@@ -52,4 +93,6 @@ export type MainToUiMessage =
   | SpecificationBuiltMessage
   | ErrorMessage
   | SettingsLoadedMessage
+  | SpecLayerOptionsLoadedMessage
+  | SpecLayerOptionsErrorMessage
   | ReadyMessage;

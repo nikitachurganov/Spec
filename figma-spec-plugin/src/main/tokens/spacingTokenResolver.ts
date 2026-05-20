@@ -1,5 +1,8 @@
 /// <reference types="@figma/plugin-typings" />
 
+import { debugLog } from '../debug';
+import { getLocalVariablesSafe } from '../figma/variables';
+
 const SEMANTIC_MARKER = 'Spaces/semantic/';
 const COLLECTION_NAME = 'Typography & Colors';
 
@@ -94,6 +97,7 @@ function rankSource(s: SpacingTokenMatch['source']): number {
 
 export async function createSpacingTokenResolver(): Promise<SpacingTokenResolver> {
   let index: IndexedSpacing[] = [];
+  let initialized = false;
 
   async function loadFromLibrary(): Promise<void> {
     const team = (
@@ -118,7 +122,7 @@ export async function createSpacingTokenResolver(): Promise<SpacingTokenResolver
     const collection = collections.find((c) => normalizeCollectionName(c.name) === targetNorm);
 
     if (!collection) {
-      console.warn('[SpacingTokenResolver] Library collection not found: Typography & Colors');
+      debugLog('[SpacingTokenResolver] Library collection not found: Typography & Colors');
       return;
     }
 
@@ -154,25 +158,21 @@ export async function createSpacingTokenResolver(): Promise<SpacingTokenResolver
     }
   }
 
-  function loadFromLocal(): void {
-    try {
-      const locals = figma.variables.getLocalVariables();
-      for (const v of locals) {
-        if (v.resolvedType !== 'FLOAT') continue;
-        if (!spacingNameMatchesSemantic(v.name)) continue;
-        const num = getFirstNumericVariableValue(v);
-        if (num == null || Number.isNaN(num)) continue;
-        const displayName = getSpacingDisplayName(v.name);
-        index.push({
-          name: v.name,
-          displayName,
-          value: num,
-          source: 'local-variable',
-          sortLen: displayName.length,
-        });
-      }
-    } catch (e) {
-      console.warn('[SpacingTokenResolver] getLocalVariables failed', e);
+  async function loadFromLocal(): Promise<void> {
+    const locals = await getLocalVariablesSafe();
+    for (const v of locals) {
+      if (v.resolvedType !== 'FLOAT') continue;
+      if (!spacingNameMatchesSemantic(v.name)) continue;
+      const num = getFirstNumericVariableValue(v);
+      if (num == null || Number.isNaN(num)) continue;
+      const displayName = getSpacingDisplayName(v.name);
+      index.push({
+        name: v.name,
+        displayName,
+        value: num,
+        source: 'local-variable',
+        sortLen: displayName.length,
+      });
     }
   }
 
@@ -204,17 +204,21 @@ export async function createSpacingTokenResolver(): Promise<SpacingTokenResolver
 
   const resolver: SpacingTokenResolver = {
     async init(): Promise<void> {
+      if (initialized) return;
       index = [];
       await loadFromLibrary();
-      loadFromLocal();
+      await loadFromLocal();
       loadFallbackMap();
+      initialized = true;
 
-      const debugTokens = index.map((t) => ({
-        displayName: t.displayName,
-        value: t.value,
-        source: t.source,
-      }));
-      console.log('[SpacingTokenResolver] loaded tokens', debugTokens);
+      debugLog(
+        '[SpacingTokenResolver] loaded tokens',
+        index.map((t) => ({
+          displayName: t.displayName,
+          value: t.value,
+          source: t.source,
+        }))
+      );
     },
 
     resolveByValue(value: number): SpacingTokenMatch | null {

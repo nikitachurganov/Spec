@@ -1,5 +1,6 @@
 /// <reference types="@figma/plugin-typings" />
 
+import { ensureDocumentReadyForTraversal } from '../figma/documentAccess';
 import { applyParagraphFontFamilyToken } from '../tokens/applyTokens';
 import { normalizeTokenName } from '../tokens/styleResolver';
 import { getSpecBuildStyleContext } from '../tokens/specStyleContext';
@@ -13,13 +14,26 @@ const HEADER_FALLBACK_FONT: FontName = { family: 'Inter', style: 'Regular' };
 /**
  * Компонент шапки: полное имя варианта либо набор `.DS-Template-header` + вариант `Default`.
  */
-export function findDsTemplateHeader(): ComponentNode | null {
+export async function findDsTemplateHeader(): Promise<ComponentNode | null> {
+  await ensureDocumentReadyForTraversal();
+
   const fullMatch = normalizeTokenName('.DS-Template-header/Default');
   const setMatch = normalizeTokenName('.DS-Template-header');
 
   for (const child of figma.root.children) {
     if (child.type !== 'PAGE') continue;
-    const hits = child.findAll(
+
+    const page = child;
+    if (typeof page.loadAsync === 'function') {
+      try {
+        await page.loadAsync();
+      } catch (error) {
+        console.warn('[SpecWrapper] Failed to load page for header search', page.name, error);
+        continue;
+      }
+    }
+
+    const hits = page.findAll(
       (n): n is ComponentNode | ComponentSetNode =>
         n.type === 'COMPONENT' || n.type === 'COMPONENT_SET'
     );

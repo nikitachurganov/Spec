@@ -5,6 +5,14 @@ type LegacySettingsInput = Partial<PluginSettings> & {
   anatomy?: boolean;
 };
 
+export function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+}
+
 export function normalizePluginSettings(input: unknown): PluginSettings {
   if (!input || typeof input !== 'object') {
     return { ...DEFAULT_PLUGIN_SETTINGS };
@@ -30,6 +38,7 @@ export function normalizePluginSettings(input: unknown): PluginSettings {
     header: typeof o.header === 'boolean' ? o.header : DEFAULT_PLUGIN_SETTINGS.header,
     componentAnatomy,
     spec,
+    specSelectedLayerPaths: normalizeStringArray(o.specSelectedLayerPaths),
     variants: typeof o.variants === 'boolean' ? o.variants : DEFAULT_PLUGIN_SETTINGS.variants,
     behavior: typeof o.behavior === 'boolean' ? o.behavior : DEFAULT_PLUGIN_SETTINGS.behavior,
     usageScenarios:
