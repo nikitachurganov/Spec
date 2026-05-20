@@ -138,10 +138,9 @@ function applyKeyCellFillHeight(keyCell: FrameNode): void {
   stretchInParent(keyCell);
 }
 
-/** Action cell in Hug-width row: width HUG, height Fill. */
-function applyActionCellInHugRow(actionCell: FrameNode): void {
-  safeLayoutSizing(actionCell, 'horizontal', 'HUG');
-  stretchInParent(actionCell);
+function applyActionTextFillWidth(actionText: TextNode): void {
+  actionText.textAutoResize = 'HEIGHT';
+  safeLayoutSizing(actionText, 'horizontal', 'FILL');
 }
 
 function createFrame(name: string, options: FrameOptions = {}): FrameNode {
@@ -564,17 +563,12 @@ async function createActionCell(
   return { cell, actionText };
 }
 
-function applyActionTextLayoutInHugRow(actionText: TextNode): void {
-  actionText.textAutoResize = 'WIDTH_AND_HEIGHT';
-}
-
 async function createKeyboardNavigationRow(
   rowData: { key: string; action: string },
   resolver: StyleResolver
 ): Promise<FrameNode> {
   const row = createFrame('Keyboard navigation row', {
     layoutMode: 'HORIZONTAL',
-    primaryAxisSizingMode: 'AUTO',
     primaryAxisAlignItems: 'MIN',
     counterAxisAlignItems: 'CENTER',
     itemSpacing: 0,
@@ -588,9 +582,10 @@ async function createKeyboardNavigationRow(
   row.appendChild(actionCell);
 
   applyKeyCellFillHeight(keyCell);
-  applyActionCellInHugRow(actionCell);
-  applyActionTextLayoutInHugRow(actionText);
+  applyStretchFillInHorizontalRow(actionCell, CONTENT_ROW_MIN_HEIGHT);
+  applyActionTextFillWidth(actionText);
 
+  stretchInParent(row);
   enforceMinHeight(row, CONTENT_ROW_MIN_HEIGHT);
 
   return row;

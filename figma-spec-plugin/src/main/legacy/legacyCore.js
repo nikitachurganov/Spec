@@ -3389,7 +3389,7 @@ async function createContainerCard(container, index, designTokens) {
     fills: [],
     strokes: [],
     layoutMode: 'VERTICAL',
-    primaryAxisSizingMode: 'FIXED',
+    primaryAxisSizingMode: 'AUTO',
     counterAxisSizingMode: 'AUTO',
     clipsContent: false,
     itemSpacing: sp.medium,
@@ -3449,19 +3449,22 @@ async function createContainerCard(container, index, designTokens) {
     stretchChildHorizontal(wb);
   }
 
-  var contentFixedH = SPEC_CARD_LAYOUT.containerCardContentHeight;
+  card.appendChild(content);
+
   try {
     content.layoutSizingHorizontal = 'FILL';
-    content.layoutSizingVertical = 'FIXED';
+    content.layoutSizingVertical = 'FILL';
   } catch (_csl) {
     /* ignore */
   }
-  content.primaryAxisSizingMode = 'FIXED';
+  try {
+    content.layoutGrow = 1;
+  } catch (_contentGrowErr) {
+    /* ignore */
+  }
+  content.primaryAxisSizingMode = 'AUTO';
   content.counterAxisSizingMode = 'AUTO';
   content.clipsContent = false;
-  content.resize(Math.max(1, Math.round(Number(content.width) || outerW)), contentFixedH);
-
-  card.appendChild(content);
 
   return card;
 }
