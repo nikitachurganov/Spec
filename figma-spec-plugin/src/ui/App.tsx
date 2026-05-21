@@ -8,6 +8,7 @@ import {
 import type { MainToUiMessage, SpecLayerOption } from '@shared/messages';
 import { postToMain } from './postToMain';
 import { SettingsPanel } from './components/SettingsPanel';
+import { SpecLayerMultiSelect } from './components/SpecLayerMultiSelect';
 import { StatusMessage } from './components/StatusMessage';
 
 const NO_BLOCKS_ERROR = 'Выберите хотя бы один блок спецификации.';
@@ -37,6 +38,7 @@ export function App() {
   const [specLayerOptionsLoading, setSpecLayerOptionsLoading] = useState(false);
   const [specLayerOptionsError, setSpecLayerOptionsError] = useState<string | null>(null);
   const [autoSelectedLayerPaths, setAutoSelectedLayerPaths] = useState<string[]>([]);
+  const [specLayerRootId, setSpecLayerRootId] = useState<string | null>(null);
 
   const requestSpecLayerOptions = useCallback(() => {
     setSpecLayerOptionsLoading(true);
@@ -66,6 +68,7 @@ export function App() {
       if (data.type === 'SPEC_LAYER_OPTIONS_LOADED') {
         setSpecLayerOptionsLoading(false);
         setSpecLayerOptionsError(null);
+        setSpecLayerRootId(data.payload.rootId);
         setSpecLayerOptions(data.payload.options);
         setAutoSelectedLayerPaths(data.payload.autoSelectedLayerPaths);
         setSettings((prev) => ({
@@ -77,6 +80,7 @@ export function App() {
 
       if (data.type === 'SPEC_LAYER_OPTIONS_ERROR') {
         setSpecLayerOptionsLoading(false);
+        setSpecLayerRootId(null);
         setSpecLayerOptions([]);
         setAutoSelectedLayerPaths([]);
         setSpecLayerOptionsError(data.payload.message || SPEC_LAYER_EMPTY_HINT);
@@ -145,8 +149,9 @@ export function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <div className="start-banner">
-          <span className="start-banner__text">Выберите компонент или фрейм</span>
+        <div className="plugin-header">
+          <span className="plugin-header__title">Выберите компоненты</span>
+          <div className="plugin-header__action">
           <button
             type="button"
             className="start-banner__button"
@@ -163,23 +168,56 @@ export function App() {
               {busy ? 'Собираю...' : 'Начать'}
             </span>
           </button>
+          </div>
         </div>
       </header>
 
       <main className="app-content">
-        <SettingsPanel
-          settings={settings}
-          onChange={setSettings}
-          specLayerOptions={specLayerOptions}
-          specLayerOptionsLoading={specLayerOptionsLoading}
-          specLayerOptionsError={specLayerOptionsError}
-          specLayerEmptyHint={SPEC_LAYER_EMPTY_HINT}
-          onSpecLayerSelectionChange={handleSpecLayerSelectionChange}
-          onRefreshSpecLayers={requestSpecLayerOptions}
-          onResetSpecLayersToAuto={handleResetSpecLayersToAuto}
-        />
-        {error ? <StatusMessage text={error} variant="error" /> : null}
-        {!error && status ? <StatusMessage text={status} variant="success" /> : null}
+        <section className="plugin-panel plugin-panel-left">
+          <div className="plugin-block-header">
+            <h2 className="plugin-block-title">Блоки документации</h2>
+          </div>
+          <div className="plugin-panel-body">
+            <SettingsPanel
+              settings={settings}
+              onChange={setSettings}
+            />
+            {error ? <StatusMessage text={error} variant="error" /> : null}
+            {!error && status ? <StatusMessage text={status} variant="success" /> : null}
+          </div>
+        </section>
+
+        <section className="plugin-panel plugin-panel-right">
+          <section className="decomposition-panel">
+            <div className="plugin-block-header">
+              <h2 className="plugin-block-title">Декомпозиция</h2>
+              <button
+                type="button"
+                className="plugin-header-icon-button"
+                aria-label="Сбросить к авто"
+                title="Сбросить к авто"
+                onClick={handleResetSpecLayersToAuto}
+                disabled={specLayerOptionsLoading || specLayerOptions.length === 0}
+              >
+                ↻
+              </button>
+            </div>
+            <div className="plugin-panel-body">
+              <SpecLayerMultiSelect
+                options={specLayerOptions}
+                selectedPaths={settings.specSelectedLayerPaths}
+                isLoading={specLayerOptionsLoading}
+                error={specLayerOptionsError}
+                emptyHint={SPEC_LAYER_EMPTY_HINT}
+                onChange={handleSpecLayerSelectionChange}
+                rootId={specLayerRootId}
+                showHeader={false}
+                showRefresh={false}
+                showResetButton={false}
+              />
+            </div>
+          </section>
+        </section>
       </main>
     </div>
   );

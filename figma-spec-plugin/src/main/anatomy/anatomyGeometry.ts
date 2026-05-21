@@ -8,7 +8,18 @@ import type {
   AnatomyPointerSide,
   AnatomyRect,
 } from './anatomyTypes';
-import { ANATOMY_COLORS, ANATOMY_LAYOUT } from './anatomyStyles';
+import {
+  anatomyItemsToLayoutItems,
+  computeAnatomyLayout,
+  renderAnatomyPointerPlacements,
+} from './anatomyLayoutEngine';
+import type { AnatomyPointerLayoutResult } from './anatomyPointerLayout';
+import {
+  ANATOMY_COLORS,
+  ANATOMY_LAYOUT,
+  ANATOMY_POINTER_LABEL_GAP,
+  ANATOMY_POINTER_RIGHT_OFFSET,
+} from './anatomyStyles';
 
 export function isVerticalPointerSide(side: AnatomyPointerSide): boolean {
   return side === 'top' || side === 'bottom';
@@ -64,6 +75,92 @@ export function createAnatomyConnector(params: {
   return connector;
 }
 
+function createDiagonalConnector(name: string, color: RGB, from: { x: number; y: number }, to: { x: number; y: number }): VectorNode {
+  const vector = figma.createVector();
+  vector.name = name;
+  vector.vectorPaths = [
+    {
+      windingRule: 'NONZERO',
+      data: `M ${from.x} ${from.y} L ${to.x} ${to.y}`,
+    },
+  ];
+  vector.strokes = [{ type: 'SOLID', color }];
+  vector.strokeWeight = 1;
+  vector.strokeCap = 'ROUND';
+  vector.fills = [];
+  return vector;
+}
+
+function buildRightSideConnectorSegmentsFromLayout(
+  layout: AnatomyPointerLayoutResult
+): AnatomyConnectorSegment[] {
+  const { startPoint, bendPoint, endPoint } = layout;
+  const segments: AnatomyConnectorSegment[] = [];
+
+  if (!bendPoint) {
+    if (Math.abs(startPoint.y - endPoint.y) < 1) {
+      segments.push({
+        orientation: 'horizontal',
+        x: Math.min(startPoint.x, endPoint.x),
+        y: startPoint.y - 0.5,
+        length: Math.max(1, Math.abs(endPoint.x - startPoint.x)),
+        nameSuffix: 'horizontal',
+      });
+    } else {
+      segments.push({
+        orientation: 'vertical',
+        x: startPoint.x - 0.5,
+        y: Math.min(startPoint.y, endPoint.y),
+        length: Math.max(1, Math.abs(endPoint.y - startPoint.y)),
+        nameSuffix: 'vertical',
+      });
+    }
+    return segments;
+  }
+
+  const firstIsVertical = Math.abs(startPoint.x - bendPoint.x) < 1;
+  const secondIsHorizontal = Math.abs(bendPoint.y - endPoint.y) < 1;
+
+  if (firstIsVertical) {
+    segments.push({
+      orientation: 'vertical',
+      x: startPoint.x - 0.5,
+      y: Math.min(startPoint.y, bendPoint.y),
+      length: Math.max(1, Math.abs(bendPoint.y - startPoint.y)),
+      nameSuffix: 'vertical',
+    });
+  } else {
+    segments.push({
+      orientation: 'horizontal',
+      x: Math.min(startPoint.x, bendPoint.x),
+      y: startPoint.y - 0.5,
+      length: Math.max(1, Math.abs(bendPoint.x - startPoint.x)),
+      nameSuffix: 'horizontal',
+    });
+  }
+
+  if (secondIsHorizontal) {
+    segments.push({
+      orientation: 'horizontal',
+      x: Math.min(bendPoint.x, endPoint.x),
+      y: bendPoint.y - 0.5,
+      length: Math.max(1, Math.abs(endPoint.x - bendPoint.x)),
+      nameSuffix: 'horizontal',
+    });
+  } else {
+    segments.push({
+      orientation: 'vertical',
+      x: bendPoint.x - 0.5,
+      y: Math.min(bendPoint.y, endPoint.y),
+      length: Math.max(1, Math.abs(endPoint.y - bendPoint.y)),
+      nameSuffix: 'vertical',
+    });
+  }
+
+  return segments.filter((segment) => segment.length > 0);
+}
+
+/** @deprecated Legacy multi-side connector builder; right-side layout uses {@link buildRightSideConnectorSegmentsFromLayout}. */
 function buildConnectorSegments(
   side: AnatomyPointerSide,
   markerCenterX: number,
@@ -399,87 +496,75 @@ export function calculatePointerPlacements(
   rootBoundsRelative: AnatomyRect,
   rootBoundsInPreview: AnatomyRect,
   markerSize: number,
-  markerOffset: number
+  markerOffset: number,
+  selectedNode?: SceneNode
 ): AnatomyPointerPlacement[] {
   return layoutAnatomyPlacements(
     items,
     rootBoundsRelative,
     rootBoundsInPreview,
     markerSize,
-    markerOffset
+    markerOffset,
+    selectedNode
   );
 }
 
 export function layoutAnatomyPlacements(
   items: AnatomyItem[],
-  rootBoundsRelative: AnatomyRect,
+  _rootBoundsRelative: AnatomyRect,
   rootBoundsInPreview: AnatomyRect,
   markerSize: number,
-  markerOffset: number
+  markerOffset: number,
+  selectedNode?: SceneNode
 ): AnatomyPointerPlacement[] {
-  const alignmentLines = getPointerAlignmentLines(rootBoundsInPreview, markerSize, markerOffset);
-  const minDistance = ANATOMY_LAYOUT.minMarkerGap;
-  const maxPerSide = ANATOMY_LAYOUT.maxPointersPerSide;
+  void markerOffset;
 
-  const canvasBounds: AnatomyRect = {
-    x: rootBoundsInPreview.x - markerSize - markerOffset - 8,
-    y: rootBoundsInPreview.y - markerSize - markerOffset - 8,
-    width: rootBoundsInPreview.width + (markerSize + markerOffset + 8) * 2,
-    height: rootBoundsInPreview.height + (markerSize + markerOffset + 8) * 2,
+  const rootForStructure =
+    selectedNode ??
+    (items[0]?.node.parent && items[0].node.parent.type !== 'PAGE'
+      ? (items[0].node.parent as SceneNode)
+      : items[0]?.node);
+
+  if (!rootForStructure || items.length === 0) {
+    return [];
+  }
+
+  const labelSizes = new Map<string, { width: number; height: number }>();
+  for (const item of items) {
+    labelSizes.set(item.nodeId, { width: markerSize, height: markerSize });
+  }
+
+  const frameBounds = {
+    x: rootBoundsInPreview.x,
+    y: rootBoundsInPreview.y,
+    width: rootBoundsInPreview.width,
+    height: rootBoundsInPreview.height,
   };
 
-  const sideCounts = new Map<AnatomyPointerSide, number>();
-  const placements: AnatomyPointerPlacement[] = [];
+  const layout = computeAnatomyLayout({
+    selectedNode: rootForStructure,
+    frameBounds,
+    labelSizes,
+    layoutItems: anatomyItemsToLayoutItems(items, frameBounds),
+    horizontalOffset: ANATOMY_POINTER_RIGHT_OFFSET,
+    labelGap: ANATOMY_POINTER_LABEL_GAP,
+    markerSize,
+  });
 
-  for (const item of items) {
-    const side = choosePointerSide(item, rootBoundsInPreview, sideCounts, maxPerSide);
-    sideCounts.set(side, (sideCounts.get(side) || 0) + 1);
+  const placements = renderAnatomyPointerPlacements(layout, items, markerSize);
 
-    const itemBoundsInPreview: AnatomyBounds = {
-      x: rootBoundsInPreview.x + item.bounds.x,
-      y: rootBoundsInPreview.y + item.bounds.y,
-      width: item.bounds.width,
-      height: item.bounds.height,
-      centerX: rootBoundsInPreview.x + item.bounds.centerX,
-      centerY: rootBoundsInPreview.y + item.bounds.centerY,
+  for (const placement of placements) {
+    placement.itemBounds = {
+      x: rootBoundsInPreview.x + placement.item.bounds.x,
+      y: rootBoundsInPreview.y + placement.item.bounds.y,
+      width: placement.item.bounds.width,
+      height: placement.item.bounds.height,
+      centerX: rootBoundsInPreview.x + placement.item.bounds.centerX,
+      centerY: rootBoundsInPreview.y + placement.item.bounds.centerY,
     };
-
-    placements.push(
-      createInitialPlacement(item, side, itemBoundsInPreview, alignmentLines, markerSize)
-    );
   }
 
-  const finalPlacements: AnatomyPointerPlacement[] = [];
-  const sides: AnatomyPointerSide[] = ['left', 'top', 'right', 'bottom'];
-
-  for (const side of sides) {
-    const group = placements.filter((p) => p.side === side);
-    if (!group.length) continue;
-
-    if (side === 'top' || side === 'bottom') {
-      finalPlacements.push(
-        ...distributeMarkersOnAxis({
-          placements: group,
-          axis: 'x',
-          minDistance,
-          minValue: canvasBounds.x,
-          maxValue: canvasBounds.x + canvasBounds.width - markerSize,
-        })
-      );
-    } else {
-      finalPlacements.push(
-        ...distributeMarkersOnAxis({
-          placements: group,
-          axis: 'y',
-          minDistance,
-          minValue: canvasBounds.y,
-          maxValue: canvasBounds.y + canvasBounds.height - markerSize,
-        })
-      );
-    }
-  }
-
-  return finalPlacements;
+  return placements;
 }
 
 export function createAnatomyConnectorFrame(
@@ -505,9 +590,24 @@ export function createAnatomyConnectorFrame(
   let maxY = -Infinity;
 
   for (const segment of segments) {
+    if (segment.orientation === 'diagonal' && segment.toX != null && segment.toY != null) {
+      const diagonal = createDiagonalConnector(
+        `Anatomy connector segment / ${index} / ${segment.nameSuffix}`,
+        color,
+        { x: segment.x, y: segment.y },
+        { x: segment.toX, y: segment.toY }
+      );
+      connectorFrame.appendChild(diagonal);
+      minX = Math.min(minX, segment.x, segment.toX);
+      minY = Math.min(minY, segment.y, segment.toY);
+      maxX = Math.max(maxX, segment.x, segment.toX);
+      maxY = Math.max(maxY, segment.y, segment.toY);
+      continue;
+    }
+
     const rect = createAnatomyConnector({
       name: `Anatomy connector segment / ${index} / ${segment.nameSuffix}`,
-      orientation: segment.orientation,
+      orientation: segment.orientation === 'vertical' ? 'vertical' : 'horizontal',
       length: segment.length,
       color,
     });
@@ -545,7 +645,12 @@ export function getPointerFrameBounds(
   let maxY = placement.markerY + markerSize;
 
   for (const segment of placement.segments) {
-    if (segment.orientation === 'vertical') {
+    if (segment.orientation === 'diagonal' && segment.toX != null && segment.toY != null) {
+      minX = Math.min(minX, segment.x, segment.toX);
+      maxX = Math.max(maxX, segment.x, segment.toX);
+      minY = Math.min(minY, segment.y, segment.toY);
+      maxY = Math.max(maxY, segment.y, segment.toY);
+    } else if (segment.orientation === 'vertical') {
       minX = Math.min(minX, segment.x);
       maxX = Math.max(maxX, segment.x + 1);
       minY = Math.min(minY, segment.y);

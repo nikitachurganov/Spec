@@ -19,8 +19,8 @@ body {
 }
 
 .app {
-  width: 100%;
-  height: 100vh;
+  width: 680px;
+  height: 1000px;
   min-width: 280px;
   display: flex;
   flex-direction: column;
@@ -33,13 +33,11 @@ body {
 .app-header {
   width: 100%;
   flex: 0 0 auto;
-  position: sticky;
-  top: 0;
   z-index: 10;
   background: #181717;
 }
 
-.start-banner {
+.plugin-header {
   width: 100%;
   box-sizing: border-box;
   padding: 12px 16px;
@@ -50,16 +48,22 @@ body {
   gap: 12px;
 }
 
-.start-banner__text {
+.plugin-header__title {
   color: #ffffff;
   font-family: 'PT Sans', sans-serif;
-  font-size: 14px;
-  font-weight: 400;
+  font-size: 16px;
+  font-weight: 700;
   line-height: 130%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.plugin-header__action {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 
 .start-banner__button {
@@ -103,12 +107,99 @@ body {
 .app-content {
   flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
-  padding: 16px;
+  overflow: hidden;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  box-sizing: border-box;
+}
+
+.plugin-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.plugin-panel-left {
+  border-right: 1px solid #e5e5e5;
+}
+
+.plugin-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f7f7f7;
+  border-bottom: 1px solid #eae8e8;
+  padding: 12px 16px;
+  height: 46px;
+  min-height: 46px;
+  max-height: 46px;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+
+.plugin-block-title {
+  font-family: 'PT Sans', sans-serif;
+  font-size: 16px;
+  line-height: 130%;
+  font-weight: 400;
+  color: #333333;
+  margin: 0;
+}
+
+.plugin-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px;
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.plugin-header-icon-button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #a7a5a5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
   box-sizing: border-box;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.plugin-header-icon-button:hover {
+  background: #f7f7f7;
+}
+
+.plugin-header-icon-button:active {
+  border-color: #d9d9d9;
+}
+
+.plugin-header-icon-button:focus-visible {
+  outline: none;
+  border: 2px solid rgba(0, 0, 0, 0.06);
+}
+
+.plugin-header-icon-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.plugin-header-icon-button svg,
+.plugin-header-icon-button path {
+  color: #a7a5a5;
+  stroke: currentColor;
 }
 
 .settings-section {
@@ -119,6 +210,13 @@ body {
   border: none;
   box-shadow: none;
   padding: 0;
+}
+
+.decomposition-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .settings-title {
@@ -218,8 +316,8 @@ body {
 .spec-layer-settings {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding-top: 4px;
+  gap: 0;
+  padding-top: 0;
 }
 
 .spec-layer-settings__header {
@@ -281,46 +379,152 @@ body {
   color: #7f1d1d;
 }
 
-.spec-layer-list {
-  display: flex;
-  flex-direction: column;
-  max-height: 220px;
-  overflow-y: auto;
-  border: 1px solid #eae8e8;
-  border-radius: 12px;
-  background: #ffffff;
+.decomposition-tree {
+  width: 100%;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 14px;
+  color: #333333;
 }
 
-.spec-layer-row {
-  min-height: 36px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #eae8e8;
+.decomposition-tree-item {
+  min-width: 0;
+}
+
+.decomposition-tree-node {
+  position: relative;
+  min-height: 32px;
+  padding: 0 8px 0 0;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
+  min-width: 0;
 }
 
-.spec-layer-row:last-child {
-  border-bottom: none;
-}
-
-.spec-layer-row[data-disabled='true'] {
+.decomposition-tree-node[data-disabled='true'] {
   opacity: 0.45;
   cursor: default;
 }
 
-.spec-layer-row__checkbox {
+.decomposition-tree-node:hover {
+  background: #f7f7f7;
+}
+
+.decomposition-tree-switcher {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #a7a5a5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  cursor: pointer;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.tree-toggle__icon {
+  width: 16px;
+  height: 16px;
+  color: #a7a5a5;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.decomposition-tree-switcher-placeholder {
+  width: 18px;
+  height: 18px;
   flex: 0 0 auto;
 }
 
-.spec-layer-row__name {
+.decomposition-tree-switcher:focus-visible {
+  outline: 2px solid rgba(0, 0, 0, 0.06);
+  border-radius: 4px;
+}
+
+.decomposition-tree-indent {
+  display: inline-flex;
+  align-self: stretch;
+  flex-shrink: 0;
+}
+
+.decomposition-tree-indent-unit {
+  width: 16px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.decomposition-tree-indent-unit::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #eae8e8;
+}
+
+.decomposition-tree-indent-unit:last-child::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 8px;
+  height: 1px;
+  background: #eae8e8;
+}
+
+.decomposition-tree-checkbox {
+  flex: 0 0 auto;
+}
+
+.decomposition-tree-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #333333;
   font-family: 'PT Sans', sans-serif;
   font-size: 14px;
   line-height: 130%;
 }
 
+.decomposition-node-kind-tag {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  border-radius: 6px;
+  background: #f2edff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #733aff;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.decomposition-node-kind-tag__icon {
+  width: 16px;
+  height: 16px;
+  color: #733aff;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Legacy Spec row metadata styles are retained for the optional old header mode. */
 .spec-layer-row__meta {
   margin-left: auto;
   display: flex;

@@ -28,6 +28,28 @@ async function saveStoredSettings(settings: PluginSettings): Promise<void> {
   await figma.clientStorage.setAsync(STORAGE_KEY_SETTINGS, settings);
 }
 
+async function postSpecLayerOptionsFromSelection(): Promise<void> {
+  const settings = await loadStoredSettings();
+  const result = await handleGetSpecLayerOptions(settings);
+  if (!result.ok) {
+    postToUi({
+      type: 'SPEC_LAYER_OPTIONS_ERROR',
+      payload: { message: result.message },
+    });
+    return;
+  }
+  postToUi({
+    type: 'SPEC_LAYER_OPTIONS_LOADED',
+    payload: {
+      rootId: result.rootId,
+      rootName: result.rootName,
+      options: result.options,
+      selectedLayerPaths: result.selectedLayerPaths,
+      autoSelectedLayerPaths: result.autoSelectedLayerPaths,
+    },
+  });
+}
+
 figma.showUI(__html__, {
   width: PLUGIN_UI_SIZE.width,
   height: PLUGIN_UI_SIZE.height,
@@ -36,8 +58,13 @@ figma.showUI(__html__, {
 void (async () => {
   const settings = await loadStoredSettings();
   postToUi({ type: 'SETTINGS_LOADED', payload: { settings } });
+  await postSpecLayerOptionsFromSelection();
   postToUi({ type: 'READY' });
 })();
+
+figma.on('selectionchange', () => {
+  void postSpecLayerOptionsFromSelection();
+});
 
 figma.ui.onmessage = async (raw: unknown) => {
   const message = raw as UiToMainMessage;
@@ -61,24 +88,7 @@ figma.ui.onmessage = async (raw: unknown) => {
         break;
       }
       case 'GET_SPEC_LAYER_OPTIONS': {
-        const settings = await loadStoredSettings();
-        const result = await handleGetSpecLayerOptions(settings);
-        if (!result.ok) {
-          postToUi({
-            type: 'SPEC_LAYER_OPTIONS_ERROR',
-            payload: { message: result.message },
-          });
-          break;
-        }
-        postToUi({
-          type: 'SPEC_LAYER_OPTIONS_LOADED',
-          payload: {
-            rootName: result.rootName,
-            options: result.options,
-            selectedLayerPaths: result.selectedLayerPaths,
-            autoSelectedLayerPaths: result.autoSelectedLayerPaths,
-          },
-        });
+        await postSpecLayerOptionsFromSelection();
         break;
       }
       case 'SAVE_SPEC_SELECTED_LAYERS': {

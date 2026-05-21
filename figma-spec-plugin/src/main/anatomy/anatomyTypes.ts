@@ -89,6 +89,8 @@ export type AnatomyCandidate = {
 export type AnatomyItem = AnatomyCandidate & {
   markerIndex: number;
   finalLabel: string;
+  /** Hierarchical anatomy index shown on markers, e.g. "1", "1.1", "2.2". */
+  anatomyIndex?: string;
   representedCount: number;
   representedNodeIds: string[];
   /** @deprecated use markerIndex */
@@ -101,11 +103,13 @@ export type AnatomyItem = AnatomyCandidate & {
 };
 
 export type AnatomyConnectorSegment = {
-  orientation: 'horizontal' | 'vertical';
+  orientation: 'horizontal' | 'vertical' | 'diagonal';
   x: number;
   y: number;
   length: number;
   nameSuffix: string;
+  toX?: number;
+  toY?: number;
 };
 
 export type AnatomyPointerPlacement = {
@@ -120,6 +124,29 @@ export type AnatomyPointerPlacement = {
   itemBounds: AnatomyBounds;
   segments: AnatomyConnectorSegment[];
 };
+
+export type {
+  AnatomyPointerLayoutInput,
+  AnatomyPointerLayoutResult,
+  AnatomyPointerRoute,
+  AnatomyPointerAnchorType,
+  AnatomyPointerRow,
+  AnatomyRouteEntryMode,
+  LayoutAnatomyPointersRightSideParams,
+  Point,
+  Bounds,
+} from './anatomyPointerLayout';
+
+export type {
+  AnatomyLayoutItem,
+  AnatomyLabelLayout,
+  AnatomyRoute,
+  AnatomyLayoutResult,
+  AnatomyRouteType,
+  AnatomyAnchorType,
+  AnatomyNodeLevel,
+  AnatomyGroupDirection,
+} from './anatomyLayoutTypes';
 
 export type ComponentPropertyMetadata = {
   instanceProperties: ComponentProperties;

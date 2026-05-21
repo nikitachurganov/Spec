@@ -35,6 +35,7 @@ function resolveSelectedPaths(
 export type HandleSpecLayerOptionsResult =
   | {
       ok: true;
+      rootId: string;
       rootName: string;
       options: CollectSpecLayerOptionsResult['options'];
       selectedLayerPaths: string[];
@@ -83,6 +84,7 @@ export async function handleGetSpecLayerOptions(
 
   return {
     ok: true,
+    rootId: root.id,
     rootName: collected.rootName,
     options: collected.options,
     selectedLayerPaths,

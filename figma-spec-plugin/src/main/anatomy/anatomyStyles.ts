@@ -13,6 +13,57 @@ export const ANATOMY_LAYOUT = {
   maxPointersPerSide: 6,
 } as const;
 
+/** Horizontal gap from frame right edge to the Anatomy label column. */
+export const ANATOMY_POINTER_RIGHT_OFFSET = 64;
+
+/** Minimum vertical gap between Anatomy labels in the right column. */
+export const ANATOMY_POINTER_LABEL_GAP = 12;
+
+/** Per-pointer bend X offset to reduce vertical connector overlap. */
+export const ANATOMY_POINTER_BEND_STEP = 8;
+
+/** Alias used by routing lane variants. */
+export const ANATOMY_POINTER_BEND_LANE_STEP = ANATOMY_POINTER_BEND_STEP;
+
+/** Minimum space between connector bend and label left edge. */
+export const ANATOMY_POINTER_MIN_CONNECTOR_GAP = 8;
+
+/** Horizontal offset for top-entry bend lane variants (label above target). */
+export const ANATOMY_POINTER_TOP_ENTRY_BEND_STEP = ANATOMY_POINTER_BEND_STEP;
+
+/** Minimum vertical gap between horizontal routing lanes. */
+export const ANATOMY_POINTER_ROUTING_LEVEL_GAP = 12;
+
+/** Minimum row-clustering threshold for visual rows. */
+export const ANATOMY_POINTER_ROW_THRESHOLD_MIN = 16;
+
+/** Vertical step when optimizing label Y positions. */
+export const ANATOMY_POINTER_LABEL_SHIFT_STEP = 16;
+
+/** Max vertical shift from preferredCenterY during label optimization. */
+export const ANATOMY_POINTER_MAX_LABEL_Y_OFFSET = 96;
+
+/** Max layout/routing fallback attempts per spec. */
+export const ANATOMY_POINTER_MAX_FALLBACK_ATTEMPTS = 3;
+
+/** Additional top vertical room used for top-zone label placement. */
+export const ANATOMY_POINTER_TOP_ZONE_MARGIN = 32;
+
+/** Additional bottom vertical room used for bottom-zone label placement. */
+export const ANATOMY_POINTER_BOTTOM_ZONE_MARGIN = 48;
+
+/** Minimum spacing between top/right/bottom label zones. */
+export const ANATOMY_POINTER_ZONE_GAP = 12;
+
+/** Simplified straight-pointer distance from component bounds. */
+export const ANATOMY_POINTER_OFFSET = 48;
+
+/** Max ratio of targets assigned to the top side. */
+export const ANATOMY_POINTER_TOP_SIDE_MAX_ITEMS_RATIO = 0.3;
+
+/** Max ratio of targets assigned to the bottom side. */
+export const ANATOMY_POINTER_BOTTOM_SIDE_MAX_ITEMS_RATIO = 0.3;
+
 export function hexToRgb(hex: string): RGB {
   let s = String(hex || '').replace(/^#/, '');
   if (s.length === 3) {

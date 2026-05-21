@@ -71,6 +71,7 @@ export type SettingsLoadedMessage = {
 export type SpecLayerOptionsLoadedMessage = {
   type: 'SPEC_LAYER_OPTIONS_LOADED';
   payload: {
+    rootId: string;
     rootName: string;
     options: SpecLayerOption[];
     selectedLayerPaths: string[];

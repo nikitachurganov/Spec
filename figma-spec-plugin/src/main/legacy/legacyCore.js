@@ -4033,15 +4033,6 @@ async function tryApplyAnatomySemanticColors(root) {
         );
         continue;
       }
-      if (n.type === 'FRAME' && name.indexOf('Anatomy connector /') === 0) {
-        await ctx.apply.applySemanticColorKey(
-          n,
-          'anatomyConnector',
-          ctx.resolver,
-          'fill'
-        );
-        continue;
-      }
       if (n.type === 'TEXT' && name.indexOf('Anatomy marker number') === 0) {
         try {
           await figma.loadFontAsync(n.fontName);

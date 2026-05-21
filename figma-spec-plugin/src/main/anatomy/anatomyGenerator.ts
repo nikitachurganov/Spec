@@ -11,7 +11,13 @@ import {
   getPointerFrameBounds,
 } from './anatomyGeometry';
 import type { AnatomyGeneratorOptions, AnatomyItem, AnatomyPointerPlacement } from './anatomyTypes';
-import { ANATOMY_LAYOUT, ANATOMY_COLORS, hexToRgb, mergeAnatomyOptions } from './anatomyStyles';
+import {
+  ANATOMY_LAYOUT,
+  ANATOMY_COLORS,
+  ANATOMY_POINTER_RIGHT_OFFSET,
+  hexToRgb,
+  mergeAnatomyOptions,
+} from './anatomyStyles';
 import { getSpecBuildStyleContext } from '../tokens/specStyleContext';
 
 async function applyAnatomyMarkerTextInverse(textNode: TextNode): Promise<void> {
@@ -66,9 +72,12 @@ function createAnatomyText(
   return t;
 }
 
-async function createMarker(index: number, options: ReturnType<typeof mergeAnatomyOptions>): Promise<FrameNode> {
+async function createMarker(
+  markerLabel: string,
+  options: ReturnType<typeof mergeAnatomyOptions>
+): Promise<FrameNode> {
   const frame = figma.createFrame();
-  frame.name = `Anatomy marker / ${index}`;
+  frame.name = `Anatomy marker / ${markerLabel}`;
   frame.layoutMode = 'HORIZONTAL';
   frame.primaryAxisAlignItems = 'CENTER';
   frame.counterAxisAlignItems = 'CENTER';
@@ -86,7 +95,7 @@ async function createMarker(index: number, options: ReturnType<typeof mergeAnato
   frame.clipsContent = false;
 
   await figma.loadFontAsync(options.fontBold);
-  const label = createAnatomyText(String(index), {
+  const label = createAnatomyText(markerLabel, {
     name: 'Anatomy marker number',
     fontName: options.fontBold,
     fontSize: 12,
@@ -117,13 +126,14 @@ async function createAnatomyPointer(
   placement: AnatomyPointerPlacement,
   options: ReturnType<typeof mergeAnatomyOptions>
 ): Promise<FrameNode> {
-  const index = placement.item.markerIndex;
+  const markerLabel =
+    placement.item.anatomyIndex ?? String(placement.item.markerIndex);
   const markerSize = options.markerSize;
   const bounds = getPointerFrameBounds(placement, markerSize);
   const connectorColor = options.connectorColor || getDefaultConnectorColor();
 
   const pointer = figma.createFrame();
-  pointer.name = `Anatomy pointer / ${index}`;
+  pointer.name = `Anatomy pointer / ${markerLabel}`;
   pointer.layoutMode = 'NONE';
   pointer.fills = [];
   pointer.strokes = [];
@@ -134,13 +144,17 @@ async function createAnatomyPointer(
   pointer.paddingBottom = 0;
   pointer.paddingLeft = 0;
 
-  const marker = await createMarker(index, options);
+  const marker = await createMarker(markerLabel, options);
   marker.x = placement.markerX - bounds.x;
   marker.y = placement.markerY - bounds.y;
   pointer.appendChild(marker);
 
   if (placement.segments.length > 0) {
-    const connector = createAnatomyConnectorFrame(index, placement.segments, connectorColor);
+    const connector = createAnatomyConnectorFrame(
+      placement.item.markerIndex,
+      placement.segments,
+      connectorColor
+    );
     const origin = getConnectorOrigin(placement);
     connector.x = origin.x - bounds.x;
     connector.y = origin.y - bounds.y;
@@ -173,7 +187,8 @@ async function createAnatomyListRow(
   const listText = options.listTextColor || hexToRgb('#4E4E4E');
   const label = item.finalLabel || item.name;
 
-  const numberText = createAnatomyText(String(item.markerIndex), {
+  const listLabel = item.anatomyIndex ?? String(item.markerIndex);
+  const numberText = createAnatomyText(listLabel, {
     name: 'Anatomy list item number',
     fontName: options.fontBold,
     fontSize: 14,
@@ -271,6 +286,7 @@ async function createAnatomyFrame(params: CreateAnatomyFrameParams): Promise<Fra
   const markerSize = merged.markerSize;
   const markerOffset = merged.markerOffset;
   const markerSafeArea = markerSize + markerOffset + 8;
+  const rightColumnExtent = ANATOMY_POINTER_RIGHT_OFFSET + markerSize + 8;
 
   const previewGroup = figma.createFrame();
   previewGroup.name = 'Anatomy preview group';
@@ -279,7 +295,7 @@ async function createAnatomyFrame(params: CreateAnatomyFrameParams): Promise<Fra
   previewGroup.strokes = [];
   previewGroup.clipsContent = false;
   previewGroup.resize(
-    Math.max(1, Math.round(cw + markerSafeArea * 2)),
+    Math.max(1, Math.round(cw + markerSafeArea + rightColumnExtent)),
     Math.max(1, Math.round(ch + markerSafeArea * 2))
   );
 
@@ -300,7 +316,8 @@ async function createAnatomyFrame(params: CreateAnatomyFrameParams): Promise<Fra
     rootBoundsRelative,
     rootBoundsInPreview,
     markerSize,
-    markerOffset
+    markerOffset,
+    rootClone
   );
 
   for (const placement of placements) {
@@ -327,7 +344,7 @@ async function createAnatomyFrame(params: CreateAnatomyFrameParams): Promise<Fra
   anatomyFrame.appendChild(previewGroup);
 
   list.x = fp + markerSafeArea + cw + listGap;
-  list.y = fp;
+  list.y = fp + Math.max(0, (previewGroup.height - list.height) / 2);
   anatomyFrame.appendChild(list);
 
   const listH = list.height;

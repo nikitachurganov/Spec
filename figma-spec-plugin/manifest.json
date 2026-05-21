@@ -1,11 +1,11 @@
 {
   "name": "Spec Generator",
-  "id": "component-spec-generator-dev",
   "api": "1.0.0",
   "main": "dist/code.js",
   "ui": "dist/ui.html",
   "editorType": ["figma"],
   "permissions": ["teamlibrary"],
   "documentAccess": "dynamic-page",
+  "id": "1639151286736217147",
   "networkAccess": { "allowedDomains": ["https://www.figma.com"] }
 }
