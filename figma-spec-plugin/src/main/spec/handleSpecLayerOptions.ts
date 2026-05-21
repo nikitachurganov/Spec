@@ -2,7 +2,10 @@
 
 import type { PluginSettings } from '../../shared/settings';
 import { ensureDocumentReadyForTraversal } from '../figma/documentAccess';
-import { collectSpecLayerOptions } from './collectSpecLayerOptions';
+import {
+  collectSpecLayerOptions,
+  type CollectSpecLayerOptionsResult,
+} from './collectSpecLayerOptions';
 
 function isSupportedRoot(node: BaseNode): node is SceneNode {
   return (
@@ -33,7 +36,7 @@ export type HandleSpecLayerOptionsResult =
   | {
       ok: true;
       rootName: string;
-      options: ReturnType<typeof collectSpecLayerOptions>['options'];
+      options: CollectSpecLayerOptionsResult['options'];
       selectedLayerPaths: string[];
       autoSelectedLayerPaths: string[];
     }
@@ -69,7 +72,7 @@ export async function handleGetSpecLayerOptions(
     };
   }
 
-  const collected = collectSpecLayerOptions(root);
+  const collected = await collectSpecLayerOptions(root);
   const validPaths = new Set(collected.options.map((o) => o.path));
 
   const selectedLayerPaths = resolveSelectedPaths(

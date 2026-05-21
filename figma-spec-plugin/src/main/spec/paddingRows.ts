@@ -1,9 +1,10 @@
-import type { SpacingTokenResolver } from '../tokens/spacingTokenResolver';
-
 /** Значение отступа в спеке (как в legacy `formatTokenWithValue`). */
 export type TokenizedSpacing = {
   value: number;
+  label?: string;
   token?: string;
+  isTokenBound?: boolean;
+  groupingKey?: string;
 };
 
 export type ContainerSpecForPadding = {
@@ -25,6 +26,9 @@ export type PaddingRow = {
 
 function formatTokenWithValue(tokenizedValue: TokenizedSpacing | null | undefined): string {
   if (!tokenizedValue) return '—';
+  if (tokenizedValue.label) {
+    return tokenizedValue.label;
+  }
   const px = `${tokenizedValue.value}px`;
   if (!tokenizedValue.token || tokenizedValue.token === 'custom') {
     return `custom (${px})`;
@@ -32,18 +36,24 @@ function formatTokenWithValue(tokenizedValue: TokenizedSpacing | null | undefine
   return `${tokenizedValue.token} (${px})`;
 }
 
-/** Подпись стороны padding для группировки: spacing resolver или legacy-текст. */
+/** Подпись стороны padding для группировки. */
 function formatPaddingSideForSpec(
   container: ContainerSpecForPadding,
-  side: PaddingSide,
-  spacingResolver?: SpacingTokenResolver | null
+  side: PaddingSide
 ): string {
   const p = container.padding?.[side];
   if (!p || p.value === 0) return 'None';
-  if (spacingResolver) {
-    return spacingResolver.formatSpacingValue(p.value);
-  }
   return formatTokenWithValue(p);
+}
+
+function getPaddingGroupingKey(
+  container: ContainerSpecForPadding,
+  side: PaddingSide
+): string {
+  const p = container.padding?.[side];
+  if (!p || p.value === 0) return 'none';
+  if (p.groupingKey) return p.groupingKey;
+  return `raw:${p.value}`;
 }
 
 export function normalizeSpacingValueForGrouping(value: string): string {
@@ -154,21 +164,34 @@ export function sortPaddingRows(rows: PaddingRow[]): PaddingRow[] {
   });
 }
 
-export function getPaddingRows(
-  container: ContainerSpecForPadding,
-  spacingResolver?: SpacingTokenResolver | null
-): PaddingRow[] {
-  const paddingValues: { side: PaddingSide; value: string }[] = [
-    { side: 'left', value: formatPaddingSideForSpec(container, 'left', spacingResolver) },
-    { side: 'right', value: formatPaddingSideForSpec(container, 'right', spacingResolver) },
-    { side: 'top', value: formatPaddingSideForSpec(container, 'top', spacingResolver) },
-    { side: 'bottom', value: formatPaddingSideForSpec(container, 'bottom', spacingResolver) },
+export function getPaddingRows(container: ContainerSpecForPadding): PaddingRow[] {
+  const paddingValues: { side: PaddingSide; value: string; groupKey: string }[] = [
+    {
+      side: 'left',
+      value: formatPaddingSideForSpec(container, 'left'),
+      groupKey: getPaddingGroupingKey(container, 'left'),
+    },
+    {
+      side: 'right',
+      value: formatPaddingSideForSpec(container, 'right'),
+      groupKey: getPaddingGroupingKey(container, 'right'),
+    },
+    {
+      side: 'top',
+      value: formatPaddingSideForSpec(container, 'top'),
+      groupKey: getPaddingGroupingKey(container, 'top'),
+    },
+    {
+      side: 'bottom',
+      value: formatPaddingSideForSpec(container, 'bottom'),
+      groupKey: getPaddingGroupingKey(container, 'bottom'),
+    },
   ];
 
   const groups = new Map<string, { sides: PaddingSide[]; displayValue: string }>();
 
   for (const item of paddingValues) {
-    const key = normalizeSpacingValueForGrouping(item.value);
+    const key = item.groupKey;
     const cur = groups.get(key);
     if (cur) {
       cur.sides.push(item.side);

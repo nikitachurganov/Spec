@@ -6,6 +6,7 @@ import * as specApply from '../tokens/applyTokens';
 import { createSpacingTokenResolver } from '../tokens/spacingTokenResolver';
 import { ensureDocumentReadyForTraversal } from '../figma/documentAccess';
 import { clearLocalStylesCache } from '../figma/localStyles';
+import { initVariableByIdRegistry, resetVariableByIdRegistry } from '../figma/variables';
 import { createStyleResolver } from '../tokens/styleResolver';
 import { setSpecBuildStyleContext } from '../tokens/specStyleContext';
 
@@ -18,6 +19,8 @@ import { setSpecBuildStyleContext } from '../tokens/specStyleContext';
 export async function buildSpecification(settings: PluginSettings): Promise<void> {
   await ensureDocumentReadyForTraversal();
   clearLocalStylesCache();
+  resetVariableByIdRegistry();
+  await initVariableByIdRegistry();
   const resolver = createStyleResolver({
     useLibraryTokens: settings.useLibraryTokens !== false,
   });

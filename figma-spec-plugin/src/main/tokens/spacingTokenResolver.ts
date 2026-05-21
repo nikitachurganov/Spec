@@ -1,31 +1,64 @@
 /// <reference types="@figma/plugin-typings" />
 
 import { debugLog } from '../debug';
-import { getLocalVariablesSafe } from '../figma/variables';
+import {
+  getLibraryVariableCollectionsSafe,
+  getVariableNumericValue,
+  getVariablesInLibraryCollectionSafe,
+} from '../figma/variables';
 
-const SEMANTIC_MARKER = 'Spaces/semantic/';
+const SEMANTIC_MARKER = 'spaces/semantic/';
 const COLLECTION_NAME = 'Typography & Colors';
+
+export type SpacingTokenSource = 'library';
 
 export type SpacingTokenMatch = {
   name: string;
-  displayName: string;
+  path: string;
   value: number;
-  source: 'library-variable' | 'local-variable' | 'fallback';
+  variableId?: string;
+  variableKey?: string;
+  collectionName?: string;
+  source: SpacingTokenSource;
 };
 
 export type SpacingTokenResolver = {
   init(): Promise<void>;
-  resolveByValue(value: number): SpacingTokenMatch | null;
-  formatSpacingValue(value: number | null | undefined): string;
+  resolveSpacingToken(valuePx: number): SpacingTokenMatch | null;
+  formatSpacingValue(valuePx: number): string;
 };
 
 type IndexedSpacing = SpacingTokenMatch & { sortLen: number };
 
-function normalizeCollectionName(name: string): string {
+let spacingTokenCache: IndexedSpacing[] | null = null;
+let libraryLoadWarned = false;
+const missingValueWarnings = new Set<number>();
+
+function normalizeName(name: string): string {
   return String(name || '')
     .trim()
     .toLowerCase()
+    .replace(/\s*\/\s*/g, '/')
     .replace(/\s+/g, ' ');
+}
+
+export function normalizeSpacingPath(name: string): string {
+  const trimmed = String(name || '').trim();
+  const lower = trimmed.toLowerCase();
+  const idx = lower.indexOf(SEMANTIC_MARKER);
+  if (idx >= 0) {
+    const segment = trimmed.slice(idx).replace(/\s*\/\s*/g, '/');
+    const parts = segment.split('/');
+    if (parts.length >= 3 && parts[0].toLowerCase() === 'spaces') {
+      return `Spaces/semantic/${parts.slice(2).join('/')}`;
+    }
+    return segment.replace(/\s*\/\s*/g, '/');
+  }
+  return trimmed.replace(/\s*\/\s*/g, '/');
+}
+
+function spacingNameMatchesSemantic(name: string): boolean {
+  return normalizeName(name).includes(SEMANTIC_MARKER);
 }
 
 function areNumbersEqual(a: number, b: number): boolean {
@@ -33,107 +66,68 @@ function areNumbersEqual(a: number, b: number): boolean {
 }
 
 export function formatPx(value: number): string {
-  if (Number.isInteger(value)) {
-    return `${value}px`;
+  const rounded = Math.round(value * 100) / 100;
+  if (Number.isInteger(rounded)) {
+    return `${rounded}px`;
   }
-  return `${Number(value.toFixed(2))}px`;
+  return `${Number(rounded.toFixed(2))}px`;
 }
 
-export function getSpacingDisplayName(variableName: string): string {
-  const normalized = String(variableName || '').trim();
-  const lower = normalized.toLowerCase();
-  const idx = lower.indexOf(SEMANTIC_MARKER.toLowerCase());
-  if (idx >= 0) {
-    return normalized.slice(idx);
+/** Spec label path trace from library variable name, e.g. `Spaces/semantic/large`. */
+export function formatSpacingPathTrace(match: SpacingTokenMatch): string {
+  return match.path;
+}
+
+function indexToken(entry: {
+  name: string;
+  path: string;
+  value: number;
+  variableId?: string;
+  variableKey?: string;
+  collectionName?: string;
+}): IndexedSpacing {
+  const path = normalizeSpacingPath(entry.path);
+  return {
+    name: entry.name,
+    path,
+    value: entry.value,
+    variableId: entry.variableId,
+    variableKey: entry.variableKey,
+    collectionName: entry.collectionName,
+    source: 'library',
+    sortLen: path.length,
+  };
+}
+
+function pickTypographyCollections(
+  collections: LibraryVariableCollection[]
+): LibraryVariableCollection[] {
+  const exact = collections.filter(
+    (c) => normalizeName(c.name) === normalizeName(COLLECTION_NAME)
+  );
+  if (exact.length > 0) return exact;
+
+  return collections.filter((c) => normalizeName(c.name).includes('typography'));
+}
+
+async function loadSpacingTokensFromLibrary(index: IndexedSpacing[]): Promise<boolean> {
+  const collections = await getLibraryVariableCollectionsSafe();
+  const targets = pickTypographyCollections(collections);
+
+  if (targets.length === 0) {
+    if (!libraryLoadWarned) {
+      libraryLoadWarned = true;
+      console.warn(
+        '[SpacingTokens] Typography & Colors library not connected — spacing values will show as px only.'
+      );
+    }
+    return false;
   }
-  return normalized;
-}
 
-function spacingNameMatchesSemantic(name: string): boolean {
-  return name.toLowerCase().includes(SEMANTIC_MARKER.toLowerCase());
-}
+  let loaded = 0;
 
-function getFirstNumericVariableValue(variable: Variable): number | null {
-  const raw = variable.valuesByMode as Record<string, unknown> | undefined;
-  if (!raw) return null;
-  const values = Object.values(raw);
-  for (const value of values) {
-    if (typeof value === 'number') {
-      return value;
-    }
-  }
-  return null;
-}
-
-/** Резерв, если библиотека недоступна или нет совпадения в variables API. */
-const FALLBACK_SPACING_DISPLAY: Record<number, string> = {
-  2: 'Spaces/semantic/3xs',
-  4: 'Spaces/semantic/2xs',
-  6: 'Spaces/semantic/xs',
-  8: 'Spaces/semantic/small',
-  10: 'Spaces/semantic/small-plus',
-  12: 'Spaces/semantic/medium',
-  16: 'Spaces/semantic/large',
-  20: 'Spaces/semantic/xl',
-  24: 'Spaces/semantic/2xl',
-  28: 'Spaces/semantic/3xl',
-  32: 'Spaces/semantic/4xl',
-  40: 'Spaces/semantic/5xl',
-  48: 'Spaces/semantic/6xl',
-  56: 'Spaces/semantic/7xl',
-  64: 'Spaces/semantic/8xl',
-};
-
-type TeamLib = {
-  getAvailableLibraryVariableCollectionsAsync?: () => Promise<LibraryVariableCollection[]>;
-  getVariablesInLibraryCollectionAsync?: (collectionKey: string) => Promise<LibraryVariable[]>;
-};
-
-function rankSource(s: SpacingTokenMatch['source']): number {
-  if (s === 'library-variable') return 0;
-  if (s === 'local-variable') return 1;
-  return 2;
-}
-
-export async function createSpacingTokenResolver(): Promise<SpacingTokenResolver> {
-  let index: IndexedSpacing[] = [];
-  let initialized = false;
-
-  async function loadFromLibrary(): Promise<void> {
-    const team = (
-      figma as PluginAPI & {
-        teamLibrary?: TeamLib;
-      }
-    ).teamLibrary;
-    if (!team?.getAvailableLibraryVariableCollectionsAsync || !team.getVariablesInLibraryCollectionAsync) {
-      console.warn('[SpacingTokenResolver] teamLibrary API unavailable');
-      return;
-    }
-
-    let collections: LibraryVariableCollection[];
-    try {
-      collections = await team.getAvailableLibraryVariableCollectionsAsync();
-    } catch (e) {
-      console.warn('[SpacingTokenResolver] getAvailableLibraryVariableCollectionsAsync failed', e);
-      return;
-    }
-
-    const targetNorm = normalizeCollectionName(COLLECTION_NAME);
-    const collection = collections.find((c) => normalizeCollectionName(c.name) === targetNorm);
-
-    if (!collection) {
-      debugLog('[SpacingTokenResolver] Library collection not found: Typography & Colors');
-      return;
-    }
-
-    let libVars: LibraryVariable[];
-    try {
-      libVars = await team.getVariablesInLibraryCollectionAsync(collection.key);
-    } catch (e) {
-      console.warn('[SpacingTokenResolver] getVariablesInLibraryCollectionAsync failed', e);
-      return;
-    }
-
+  for (const collection of targets) {
+    const libVars = await getVariablesInLibraryCollectionSafe(collection.key);
     for (const lv of libVars) {
       if (lv.resolvedType !== 'FLOAT') continue;
       if (!spacingNameMatchesSemantic(lv.name)) continue;
@@ -141,109 +135,120 @@ export async function createSpacingTokenResolver(): Promise<SpacingTokenResolver
       try {
         const v = await figma.variables.importVariableByKeyAsync(lv.key);
         if (v.resolvedType !== 'FLOAT') continue;
-        const num = getFirstNumericVariableValue(v);
+
+        const importedCollection = v.variableCollectionId
+          ? figma.variables.getVariableCollectionById(v.variableCollectionId)
+          : null;
+        const num = getVariableNumericValue(v, importedCollection);
         if (num == null || Number.isNaN(num)) continue;
 
-        const displayName = getSpacingDisplayName(v.name);
-        index.push({
-          name: v.name,
-          displayName,
-          value: num,
-          source: 'library-variable',
-          sortLen: displayName.length,
-        });
+        const path = normalizeSpacingPath(v.name);
+
+        index.push(
+          indexToken({
+            name: v.name,
+            path,
+            value: Math.round(num),
+            variableId: v.id,
+            variableKey: lv.key,
+            collectionName: collection.name,
+          })
+        );
+        loaded++;
       } catch (e) {
-        console.warn('[SpacingTokenResolver] importVariableByKeyAsync failed', lv.name, e);
+        debugLog('[SpacingTokens] importVariableByKeyAsync failed', lv.name, e);
       }
     }
   }
 
-  async function loadFromLocal(): Promise<void> {
-    const locals = await getLocalVariablesSafe();
-    for (const v of locals) {
-      if (v.resolvedType !== 'FLOAT') continue;
-      if (!spacingNameMatchesSemantic(v.name)) continue;
-      const num = getFirstNumericVariableValue(v);
-      if (num == null || Number.isNaN(num)) continue;
-      const displayName = getSpacingDisplayName(v.name);
-      index.push({
-        name: v.name,
-        displayName,
-        value: num,
-        source: 'local-variable',
-        sortLen: displayName.length,
-      });
-    }
-  }
+  return loaded > 0;
+}
 
-  function loadFallbackMap(): void {
-    for (const [k, displayName] of Object.entries(FALLBACK_SPACING_DISPLAY)) {
-      const value = Number(k);
-      index.push({
-        name: displayName,
-        displayName,
-        value,
-        source: 'fallback',
-        sortLen: displayName.length,
-      });
-    }
-  }
+async function loadSpacingTokens(): Promise<IndexedSpacing[]> {
+  if (spacingTokenCache) return spacingTokenCache;
 
-  function pickBestMatch(value: number): IndexedSpacing | null {
-    const matches = index.filter((t) => areNumbersEqual(t.value, value));
-    if (matches.length === 0) return null;
+  const index: IndexedSpacing[] = [];
+  await loadSpacingTokensFromLibrary(index);
 
-    matches.sort((a, b) => {
-      const rs = rankSource(a.source) - rankSource(b.source);
-      if (rs !== 0) return rs;
-      if (a.sortLen !== b.sortLen) return a.sortLen - b.sortLen;
-      return a.displayName.localeCompare(b.displayName);
-    });
-    return matches[0] ?? null;
-  }
+  spacingTokenCache = index;
+  debugLog(
+    '[SpacingTokens] loaded from library',
+    index.map((t) => ({ path: t.path, value: t.value }))
+  );
+  return index;
+}
+
+function pickBestMatch(index: IndexedSpacing[], value: number): IndexedSpacing | null {
+  const rounded = Math.round(value);
+  const matches = index.filter((t) => areNumbersEqual(t.value, rounded));
+  if (matches.length === 0) return null;
+
+  matches.sort((a, b) => {
+    if (a.sortLen !== b.sortLen) return a.sortLen - b.sortLen;
+    return a.path.localeCompare(b.path);
+  });
+  return matches[0] ?? null;
+}
+
+const spacingTokenByValueCache = new Map<number, SpacingTokenMatch | null>();
+
+export async function createSpacingTokenResolver(): Promise<SpacingTokenResolver> {
+  let index: IndexedSpacing[] = [];
+  let initialized = false;
 
   const resolver: SpacingTokenResolver = {
     async init(): Promise<void> {
       if (initialized) return;
-      index = [];
-      await loadFromLibrary();
-      await loadFromLocal();
-      loadFallbackMap();
+      index = await loadSpacingTokens();
+      spacingTokenByValueCache.clear();
       initialized = true;
-
-      debugLog(
-        '[SpacingTokenResolver] loaded tokens',
-        index.map((t) => ({
-          displayName: t.displayName,
-          value: t.value,
-          source: t.source,
-        }))
-      );
     },
 
-    resolveByValue(value: number): SpacingTokenMatch | null {
-      const hit = pickBestMatch(value);
-      if (!hit) return null;
-      return {
-        name: hit.name,
-        displayName: hit.displayName,
-        value: hit.value,
-        source: hit.source,
-      };
-    },
-
-    formatSpacingValue(value: number | null | undefined): string {
-      if (value == null || value === 0) {
-        return 'None';
+    resolveSpacingToken(valuePx: number): SpacingTokenMatch | null {
+      const rounded = Math.round(valuePx);
+      if (spacingTokenByValueCache.has(rounded)) {
+        return spacingTokenByValueCache.get(rounded) ?? null;
       }
-      const hit = pickBestMatch(value);
+      const hit = pickBestMatch(index, rounded);
+      const result = hit
+        ? {
+            name: hit.name,
+            path: hit.path,
+            value: hit.value,
+            variableId: hit.variableId,
+            variableKey: hit.variableKey,
+            collectionName: hit.collectionName,
+            source: hit.source,
+          }
+        : null;
+      spacingTokenByValueCache.set(rounded, result);
+      return result;
+    },
+
+    formatSpacingValue(valuePx: number): string {
+      if (valuePx === 0) {
+        return '0px';
+      }
+
+      const rounded = Math.round(valuePx);
+      const hit = resolver.resolveSpacingToken(rounded);
       if (hit) {
-        return `${hit.displayName} (${formatPx(value)})`;
+        return `${formatSpacingPathTrace(hit)} (${formatPx(rounded)})`;
       }
-      console.warn('[SpacingTokenResolver] No token for spacing value', value);
-      return formatPx(value);
+
+      if (!missingValueWarnings.has(rounded)) {
+        missingValueWarnings.add(rounded);
+        debugLog('[SpacingTokens] No library token for value', rounded);
+      }
+
+      return formatPx(rounded);
     },
   };
 
   return resolver;
+}
+
+/** @deprecated use `path` on SpacingTokenMatch */
+export function getSpacingDisplayName(variableName: string): string {
+  return normalizeSpacingPath(variableName);
 }

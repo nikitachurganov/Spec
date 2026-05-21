@@ -201,7 +201,7 @@ var SPEC_CARD_LAYOUT = {
   descriptionWidth: 420,
   rowGap: 20,
   previewMinHeight: 160,
-  containerCardContentHeight: 298,
+  containerCardContentHeight: 328,
 };
 
 var INNER_ROW_WIDTH =
@@ -1942,9 +1942,8 @@ function capitalizeFirst(value) {
 
 function formatTokenWithValue(tokenizedValue) {
   if (!tokenizedValue) return '—';
-  var ctxSp = getSpecBuildStyleContext();
-  if (ctxSp && ctxSp.spacingTokenResolver && typeof tokenizedValue.value === 'number') {
-    return ctxSp.spacingTokenResolver.formatSpacingValue(tokenizedValue.value);
+  if (tokenizedValue.label) {
+    return tokenizedValue.label;
   }
   var px = tokenizedValue.value + 'px';
   if (!tokenizedValue.token || tokenizedValue.token === 'custom') {
@@ -2041,10 +2040,6 @@ function formatAlignmentForContainer(container) {
 function formatGapForSpec(container) {
   var g = container.spacing && container.spacing.gap;
   if (!g || g.value === 0) return 'None';
-  var ctxSp = getSpecBuildStyleContext();
-  if (ctxSp && ctxSp.spacingTokenResolver) {
-    return ctxSp.spacingTokenResolver.formatSpacingValue(g.value);
-  }
   return formatTokenWithValue(g);
 }
 
@@ -3413,18 +3408,13 @@ async function createContainerCard(container, index, designTokens) {
 
   var dirDisplay = formatDirection(container.layout.direction);
 
-  var specStyleForSpacing = getSpecBuildStyleContext();
-
   var specRows = getContainerPropertyRows({
     directionDisplay: dirDisplay,
     alignmentDisplay: formatAlignmentForContainer(container),
     widthDisplay: formatSizingModeOnly(container.sizing.width),
     heightDisplay: formatSizingModeOnly(container.sizing.height),
     gapDisplay: formatGapForSpec(container),
-    paddingValueGroups: getPaddingRows(
-      container,
-      specStyleForSpacing && specStyleForSpacing.spacingTokenResolver
-    ),
+    paddingValueGroups: getPaddingRows(container),
   });
 
   var ri;
@@ -3465,6 +3455,16 @@ async function createContainerCard(container, index, designTokens) {
   content.primaryAxisSizingMode = 'AUTO';
   content.counterAxisSizingMode = 'AUTO';
   content.clipsContent = false;
+
+  var minContentH = SPEC_CARD_LAYOUT.containerCardContentHeight;
+  if (content.height < minContentH) {
+    try {
+      content.resize(Math.max(1, content.width), minContentH);
+      content.primaryAxisSizingMode = 'FIXED';
+    } catch (_contentMinH) {
+      /* ignore */
+    }
+  }
 
   return card;
 }
@@ -3626,11 +3626,11 @@ async function createContainersSection(spec, root, designTokens, sections) {
   return section;
 }
 
-function buildSpecObject(root, options) {
+async function buildSpecObject(root, options) {
   options = options || {};
 
   var anatomy = parseAnatomy(root);
-  var containers = parseContainers(root, {
+  var containers = await parseContainers(root, {
     selectedLayerPaths: options.selectedLayerPaths || [],
   });
   var warnings = [];
@@ -3723,7 +3723,7 @@ async function generateSpecFrames(sections) {
 
     var designTokens = await loadSpecDesignTokens();
 
-    var spec = buildSpecObject(root, {
+    var spec = await buildSpecObject(root, {
       selectedLayerPaths: sections.specSelectedLayerPaths || [],
     });
 
@@ -4112,7 +4112,7 @@ async function buildSpecification(sections) {
 
     await loadSpecFonts();
     var designTokens = await loadSpecDesignTokens();
-    var spec = buildSpecObject(root, {
+    var spec = await buildSpecObject(root, {
       selectedLayerPaths: sections.specSelectedLayerPaths || [],
     });
 

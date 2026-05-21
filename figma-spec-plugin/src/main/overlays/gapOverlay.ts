@@ -250,8 +250,8 @@ export async function createGapOverlayItem(params: GapOverlayItemParams): Promis
   let overlayPaddingRight = 0;
 
   if (isVerticalStrip) {
-    overlayHeight = contentHeight + GAP_OVERLAY_SPACER + paddingTopOverlayHeight;
-    overlayY = innerBounds.y - GAP_OVERLAY_SPACER - paddingTopOverlayHeight;
+    overlayHeight = Math.max(1, Math.round(params.targetBounds.height + GAP_OVERLAY_SPACER));
+    overlayY = Math.round(params.targetBounds.y - GAP_OVERLAY_SPACER);
     overlayPaddingTop = paddingTopOverlayHeight;
   } else {
     overlayWidth = paddingBottomOverlayWidth;
@@ -270,7 +270,9 @@ export async function createGapOverlayItem(params: GapOverlayItemParams): Promis
   overlay.itemSpacing = GAP_OVERLAY_SPACER;
   overlay.paddingTop = overlayPaddingTop;
   overlay.paddingRight = overlayPaddingRight;
-  overlay.paddingBottom = 0;
+  overlay.paddingBottom = isVerticalStrip
+    ? Math.max(0, Math.round(params.paddingValues.bottom))
+    : 0;
   overlay.paddingLeft = overlayPaddingLeft;
   overlay.fills = [];
   overlay.strokes = [];

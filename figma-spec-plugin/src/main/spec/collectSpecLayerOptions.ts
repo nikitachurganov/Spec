@@ -104,8 +104,10 @@ function canTraverseCollect(node: SceneNode, root: SceneNode): boolean {
   return node.type === 'FRAME' || node.type === 'GROUP' || node.type === 'SECTION';
 }
 
-export function collectSpecLayerOptions(root: SceneNode): CollectSpecLayerOptionsResult {
-  const autoContainers = parseContainers(root, {});
+export async function collectSpecLayerOptions(
+  root: SceneNode
+): Promise<CollectSpecLayerOptionsResult> {
+  const autoContainers = await parseContainers(root, {});
   const autoSelectedLayerPaths = autoContainers
     .map((c) => c.nodePathKey)
     .filter((key) => key !== '');
