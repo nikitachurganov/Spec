@@ -1,6 +1,7 @@
 'use strict';
 
 import { buildAccessibilitySection } from '../builders/accessibility/buildAccessibilitySection';
+import { buildThemesSection } from '../builders/buildThemesSection';
 import { ensureDocumentReadyForTraversal, getNodeByIdSafeAsync } from '../figma/documentAccess';
 import { assembleSpecificationWrapper, findDsTemplateHeader } from '../builders/specificationWrapper';
 import { createSpecIcon } from '../icons/iconFactory';
@@ -357,6 +358,10 @@ function normalizeSectionSettings(settings) {
       settings && typeof settings.useLibraryTokens === 'boolean'
         ? settings.useLibraryTokens
         : DEFAULT_SECTION_SETTINGS.useLibraryTokens,
+    themes:
+      settings && typeof settings.themes === 'boolean'
+        ? settings.themes
+        : false,
     specSelectedLayerPaths:
       settings && Array.isArray(settings.specSelectedLayerPaths)
         ? settings.specSelectedLayerPaths
@@ -1573,51 +1578,6 @@ function isSupportedNode(node) {
   return (
     t === 'COMPONENT' || t === 'INSTANCE' || t === 'FRAME' || t === 'COMPONENT_SET'
   );
-}
-
-function getSelectionInfo() {
-  var selection = figma.currentPage.selection;
-
-  if (selection.length === 0) {
-    return {
-      selected: false,
-      supported: false,
-      error: 'Выберите компонент, фрейм или инстанс для генерации спецификации.',
-    };
-  }
-
-  if (selection.length > 1) {
-    return {
-      selected: true,
-      supported: false,
-      error: 'Выберите только один компонент, фрейм или инстанс.',
-    };
-  }
-
-  var node = selection[0];
-  var base = {
-    selected: true,
-    name: node.name,
-    nodeType: node.type,
-  };
-
-  if (!isSupportedNode(node)) {
-    return Object.assign({}, base, {
-      supported: false,
-      error: 'Выбранный тип слоя не поддерживается. Выберите компонент, фрейм или инстанс.',
-    });
-  }
-
-  return Object.assign({}, base, {
-    supported: true,
-  });
-}
-
-function sendSelectionInfo() {
-  figma.ui.postMessage({
-    type: 'SELECTION_INFO',
-    payload: getSelectionInfo(),
-  });
 }
 
 function toSpacingToken(raw) {
@@ -3700,68 +3660,6 @@ async function createSpecFrame(root, spec, designTokens, sections) {
   return specFrame;
 }
 
-async function generateSpecFrames(sections) {
-  sections = normalizeSectionSettings(sections);
-  try {
-    var info = getSelectionInfo();
-
-    if (!info.supported) {
-      figma.ui.postMessage({
-        type: 'ERROR',
-        payload: {
-          message:
-            info.error ||
-            'Невозможно сгенерировать спецификацию для текущего выделения.',
-        },
-      });
-      return;
-    }
-
-    var root = figma.currentPage.selection[0];
-
-    await loadSpecFonts();
-
-    var designTokens = await loadSpecDesignTokens();
-
-    var spec = await buildSpecObject(root, {
-      selectedLayerPaths: sections.specSelectedLayerPaths || [],
-    });
-
-    var specFrame = await createSpecFrame(root, spec, designTokens, sections);
-    specFrame.name = 'Spec / ' + root.name;
-
-    figma.currentPage.appendChild(specFrame);
-
-    var box = root.absoluteBoundingBox;
-    if (box) {
-      specFrame.x = box.x + box.width + 80;
-      specFrame.y = box.y;
-    } else {
-      specFrame.x = root.x + root.width + 80;
-      specFrame.y = root.y;
-    }
-
-    figma.currentPage.selection = [specFrame];
-    figma.viewport.scrollAndZoomIntoView([specFrame]);
-
-    figma.ui.postMessage({
-      type: 'FRAMES_GENERATED',
-      payload: {
-        name: specFrame.name,
-      },
-    });
-  } catch (error) {
-    console.error(error);
-    figma.ui.postMessage({
-      type: 'ERROR',
-      payload: {
-        message:
-          'Не удалось создать фреймы спецификации. Проверьте консоль плагина.',
-      },
-    });
-  }
-}
-
 async function tryApplySpecificationFrameTokens(frame) {
   var ctx = getSpecBuildStyleContext();
   if (!ctx || !ctx.apply || !ctx.resolver) return;
@@ -4068,236 +3966,152 @@ async function tryApplyAnatomySemanticColors(root) {
   }
 }
 
-async function buildSpecification(sections) {
+/**
+ * Builds the DS specification wrapper for the given pre-validated root node.
+ *
+ * The caller (TypeScript orchestrator in `builders/buildSpecification.ts`) is
+ * responsible for:
+ *  - validating the current selection,
+ *  - calling `ensureDocumentReadyForTraversal()`,
+ *  - placing the returned wrapper on the visible page (atomic staging),
+ *  - positioning, selecting, zooming and posting UI messages.
+ *
+ * This function intentionally does NOT touch `figma.currentPage`,
+ * does NOT post UI messages and does NOT position the result.
+ *
+ * @param {object} sections Section toggles from `PluginSettings`.
+ * @param {SceneNode} root  Pre-validated root node from the selection.
+ * @returns {Promise<FrameNode>} The assembled `DS specification / …` wrapper.
+ */
+async function buildSpecification(sections, root) {
   sections = normalizeSectionSettings(sections);
-  try {
-    var selection = figma.currentPage.selection;
 
-    if (selection.length !== 1) {
-      figma.ui.postMessage({
-        type: 'ERROR',
-        payload: {
-          message:
-            selection.length === 0
-              ? 'Выберите компонент, фрейм или инстанс.'
-              : 'Выберите только один компонент, фрейм или инстанс.',
-        },
+  if (!root || !isSupportedNode(root)) {
+    throw new Error('buildSpecification: unsupported or missing root node');
+  }
+
+  await loadSpecFonts();
+  var designTokens = await loadSpecDesignTokens();
+  var spec = await buildSpecObject(root, {
+    selectedLayerPaths: sections.specSelectedLayerPaths || [],
+  });
+
+  var specificationFrame = figma.createFrame();
+  specificationFrame.name = 'Specification / ' + root.name;
+  specificationFrame.layoutMode = 'VERTICAL';
+  specificationFrame.primaryAxisSizingMode = 'AUTO';
+  specificationFrame.counterAxisSizingMode = 'FIXED';
+  specificationFrame.resize(SPECIFICATION_LAYOUT.width, 100);
+  specificationFrame.itemSpacing = SPECIFICATION_LAYOUT.gap;
+  specificationFrame.paddingTop = SPECIFICATION_LAYOUT.padding;
+  specificationFrame.paddingRight = SPECIFICATION_LAYOUT.padding;
+  specificationFrame.paddingBottom = SPECIFICATION_LAYOUT.padding;
+  specificationFrame.paddingLeft = SPECIFICATION_LAYOUT.padding;
+  specificationFrame.fills = [
+    { type: 'SOLID', color: SPEC_COLORS.backgroundSecondary },
+  ];
+  specificationFrame.strokes = [];
+  specificationFrame.clipsContent = false;
+
+  await tryApplySpecificationFrameTokens(specificationFrame);
+
+  if (sections.accessibility) {
+    var styleCtx = getSpecBuildStyleContext();
+    if (styleCtx && styleCtx.resolver) {
+      var accessibilitySection = await buildAccessibilitySection({
+        root: root,
+        settings: sections,
+        resolver: styleCtx.resolver,
+        spacingTokenResolver: styleCtx.spacingTokenResolver,
       });
-      return;
+      specificationFrame.appendChild(accessibilitySection);
+      stretchInParent(accessibilitySection);
+    } else {
+      console.warn('[Spec] Accessibility section skipped: no style context');
     }
+  }
 
-    var root = selection[0];
-
-    await ensureDocumentReadyForTraversal();
-
-    if (!isSupportedNode(root)) {
-      figma.ui.postMessage({
-        type: 'ERROR',
-        payload: {
-          message:
-            'Выбранный слой не поддерживается. Выберите компонент, фрейм или инстанс.',
-        },
-      });
-      return;
-    }
-
-    await loadSpecFonts();
-    var designTokens = await loadSpecDesignTokens();
-    var spec = await buildSpecObject(root, {
-      selectedLayerPaths: sections.specSelectedLayerPaths || [],
-    });
-
-    var specificationFrame = figma.createFrame();
-    specificationFrame.name = 'Specification / ' + root.name;
-    specificationFrame.layoutMode = 'VERTICAL';
-    specificationFrame.primaryAxisSizingMode = 'AUTO';
-    specificationFrame.counterAxisSizingMode = 'FIXED';
-    specificationFrame.resize(SPECIFICATION_LAYOUT.width, 100);
-    specificationFrame.itemSpacing = SPECIFICATION_LAYOUT.gap;
-    specificationFrame.paddingTop = SPECIFICATION_LAYOUT.padding;
-    specificationFrame.paddingRight = SPECIFICATION_LAYOUT.padding;
-    specificationFrame.paddingBottom = SPECIFICATION_LAYOUT.padding;
-    specificationFrame.paddingLeft = SPECIFICATION_LAYOUT.padding;
-    specificationFrame.fills = [
-      { type: 'SOLID', color: SPEC_COLORS.backgroundSecondary },
-    ];
-    specificationFrame.strokes = [];
-    specificationFrame.clipsContent = false;
-
-    await tryApplySpecificationFrameTokens(specificationFrame);
-
-    if (sections.accessibility) {
-      var styleCtx = getSpecBuildStyleContext();
-      if (styleCtx && styleCtx.resolver) {
-        var accessibilitySection = await buildAccessibilitySection({
-          root: root,
-          settings: sections,
-          resolver: styleCtx.resolver,
-          spacingTokenResolver: styleCtx.spacingTokenResolver,
-        });
-        specificationFrame.appendChild(accessibilitySection);
-        stretchInParent(accessibilitySection);
-      } else {
-        console.warn('[Spec] Accessibility section skipped: no style context');
-      }
-    }
-
-    if (sections.componentAnatomy || sections.anatomy) {
-      var propertyMetadata = await AnatomyGenerator.getComponentPropertyMetadata(
-        root
-      );
-
-      var anatomyOptions = await AnatomyGenerator.loadFonts({
-        fontRegular: activeFontRegular,
-        fontBold: activeFontBold,
-      });
-
-      anatomyOptions.componentPropertyMetadata = propertyMetadata;
-      anatomyOptions.useComponentPropertyNames = !!sections.useComponentPropertyNames;
-
-      var anatomyFrame = await AnatomyGenerator.createAnatomyFrame({
-        sourceNode: root,
-        title: 'Anatomy',
-        options: anatomyOptions,
-      });
-
-      var anatomySection = await createAnatomySection(anatomyFrame);
-      specificationFrame.appendChild(anatomySection);
-      stretchInParent(anatomySection);
-    }
-
-    if (sections.spec || sections.containers) {
-      var containersSection = await createContainersSection(
-        spec,
-        root,
-        designTokens,
-        sections
-      );
-
-      var specSection = await createSpecSection(containersSection);
-      specificationFrame.appendChild(specSection);
-      stretchInParent(specSection);
-    }
-
-    if (specificationFrame.children.length === 0) {
-      var placeholder = await createTextNode(
-        'Не выбраны блоки для генерации.',
-        {
-          name: 'Empty specification message',
-          fontName: activeFontRegular,
-          fontSize: 14,
-          lineHeight: { unit: 'PERCENT', value: 130 },
-          fills: [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }],
-        }
-      );
-      specificationFrame.appendChild(placeholder);
-      stretchInParent(placeholder);
-    }
-
-    var includeHeader = sections.header !== false;
-    var dsHeaderComponent = includeHeader ? await findDsTemplateHeader() : null;
-    var specificationRoot = await assembleSpecificationWrapper(
-      root.name,
-      specificationFrame,
-      dsHeaderComponent,
-      { includeHeader: includeHeader }
+  if (sections.componentAnatomy || sections.anatomy) {
+    var propertyMetadata = await AnatomyGenerator.getComponentPropertyMetadata(
+      root
     );
 
-    specificationRoot.x = root.x + root.width + 120;
-    specificationRoot.y = root.y;
-
-    figma.currentPage.appendChild(specificationRoot);
-
-    figma.currentPage.selection = [specificationRoot];
-    figma.viewport.scrollAndZoomIntoView([specificationRoot]);
-
-    figma.ui.postMessage({
-      type: 'SPECIFICATION_BUILT',
-      payload: {
-        name: specificationRoot.name,
-      },
-    });
-  } catch (error) {
-    var errMsg =
-      error && error.message
-        ? String(error.message)
-        : error
-          ? String(error)
-          : 'Неизвестная ошибка';
-    console.error('[Spec] buildSpecification failed:', errMsg, error);
-    figma.ui.postMessage({
-      type: 'ERROR',
-      payload: {
-        message: 'Не удалось собрать спецификацию: ' + errMsg,
-      },
-    });
-  }
-}
-
-async function generateAnatomy() {
-  var selection = figma.currentPage.selection;
-
-  if (selection.length !== 1) {
-    figma.ui.postMessage({
-      type: 'ERROR',
-      payload: {
-        message: 'Выберите один компонент или фрейм для генерации анатомии.',
-      },
-    });
-    return;
-  }
-
-  var sourceNode = selection[0];
-
-  if (!isSupportedNode(sourceNode)) {
-    figma.ui.postMessage({
-      type: 'ERROR',
-      payload: {
-        message: 'Выбранный слой не поддерживается.',
-      },
-    });
-    return;
-  }
-
-  try {
     var anatomyOptions = await AnatomyGenerator.loadFonts({
       fontRegular: activeFontRegular,
       fontBold: activeFontBold,
     });
 
-    var propertyMetadata = await AnatomyGenerator.getComponentPropertyMetadata(sourceNode);
-
     anatomyOptions.componentPropertyMetadata = propertyMetadata;
-    anatomyOptions.useComponentPropertyNames =
-      DEFAULT_SECTION_SETTINGS.useComponentPropertyNames;
+    anatomyOptions.useComponentPropertyNames = !!sections.useComponentPropertyNames;
 
     var anatomyFrame = await AnatomyGenerator.createAnatomyFrame({
-      sourceNode: sourceNode,
-      title: 'Анатомия компонента',
+      sourceNode: root,
+      title: 'Anatomy',
       options: anatomyOptions,
     });
 
-    anatomyFrame.x = sourceNode.x + sourceNode.width + 120;
-    anatomyFrame.y = sourceNode.y;
-
-    figma.currentPage.appendChild(anatomyFrame);
-    figma.currentPage.selection = [anatomyFrame];
-    figma.viewport.scrollAndZoomIntoView([anatomyFrame]);
-
-    figma.ui.postMessage({
-      type: 'ANATOMY_GENERATED',
-      payload: { name: anatomyFrame.name },
-    });
-  } catch (error) {
-    console.error(error);
-    figma.ui.postMessage({
-      type: 'ERROR',
-      payload: {
-        message: 'Не удалось сгенерировать анатомию компонента.',
-      },
-    });
+    var anatomySection = await createAnatomySection(anatomyFrame);
+    specificationFrame.appendChild(anatomySection);
+    stretchInParent(anatomySection);
   }
-}
 
+  if (sections.spec || sections.containers) {
+    var containersSection = await createContainersSection(
+      spec,
+      root,
+      designTokens,
+      sections
+    );
+
+    var specSection = await createSpecSection(containersSection);
+    specificationFrame.appendChild(specSection);
+    stretchInParent(specSection);
+  }
+
+  if (sections.themes) {
+    try {
+      var themesStyleCtx = getSpecBuildStyleContext();
+      if (themesStyleCtx && themesStyleCtx.resolver) {
+        var themesSection = await buildThemesSection({
+          rootNode: root,
+          settings: sections,
+          resolver: themesStyleCtx.resolver,
+        });
+        specificationFrame.appendChild(themesSection);
+        stretchInParent(themesSection);
+      } else {
+        console.warn('[Themes] Section skipped: no style context');
+      }
+    } catch (themesErr) {
+      console.warn('[Themes] Section generation failed:', themesErr);
+    }
+  }
+
+  if (specificationFrame.children.length === 0) {
+    var placeholder = await createTextNode(
+      'Не выбраны блоки для генерации.',
+      {
+        name: 'Empty specification message',
+        fontName: activeFontRegular,
+        fontSize: 14,
+        lineHeight: { unit: 'PERCENT', value: 130 },
+        fills: [{ type: 'SOLID', color: SPEC_COLORS.textPrimary }],
+      }
+    );
+    specificationFrame.appendChild(placeholder);
+    stretchInParent(placeholder);
+  }
+
+  var includeHeader = sections.header !== false;
+  var dsHeaderComponent = includeHeader ? await findDsTemplateHeader() : null;
+  var specificationRoot = await assembleSpecificationWrapper(
+    root.name,
+    specificationFrame,
+    dsHeaderComponent,
+    { includeHeader: includeHeader }
+  );
+
+  return specificationRoot;
+}
 
 export { buildSpecification };

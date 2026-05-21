@@ -9,9 +9,11 @@ const STATE_ORDER = [
   'Default',
   'Selected',
   'Active',
+  'Current',
   'Expanded',
   'Collapsed',
   'Disabled',
+  'Destructive',
   'Error',
   'Hover',
   'Pressed',
@@ -31,10 +33,20 @@ function featuresKey(features: AnatomyCandidate['features']): string {
   return features.length > 0 ? features.slice().sort().join(',') : 'none';
 }
 
-export function getAnatomyUniquenessKey(candidate: AnatomyCandidate): string {
+/**
+ * Builds a stable semantic signature for an anatomy candidate.
+ *
+ * Included signals: entityKind, role, baseName, state, variant, action,
+ * destructive flag, slot position, nested context level.
+ * Excluded signals: node.id, node path, x/y coordinates, raw text content,
+ * index in parent, length of text.
+ */
+export function buildAnatomySemanticSignature(candidate: AnatomyCandidate): string {
   const base = normalizeName(candidate.baseName);
   const state = candidate.stateName ? normalizeName(candidate.stateName) : 'none';
   const variant = candidate.variantName ? normalizeName(candidate.variantName) : 'none';
+  const action = candidate.actionName ? normalizeName(candidate.actionName) : 'none';
+  const destructive = candidate.isDestructive ? 'yes' : 'no';
   const role = candidate.role;
   const features = featuresKey(candidate.features);
   const level = candidate.level;
@@ -42,21 +54,26 @@ export function getAnatomyUniquenessKey(candidate: AnatomyCandidate): string {
     candidate.parentContextName && level === 'nested'
       ? normalizeName(candidate.parentContextName)
       : 'none';
-  const position = candidate.slotPosition && candidate.slotPosition !== 'none'
-    ? candidate.slotPosition
-    : 'none';
+  const position =
+    candidate.slotPosition && candidate.slotPosition !== 'none'
+      ? candidate.slotPosition
+      : 'none';
 
   switch (candidate.entityKind) {
     case 'slot':
-      return `slot|${role}|${base}|position:${position}|ctx:${ctx}|variant:${variant}`;
+      return `slot|${role}|${base}|position:${position}|action:${action}|destructive:${destructive}|ctx:${ctx}|variant:${variant}`;
     case 'structure':
-      return `structure|${role}|${base}`;
+      return `structure|${role}|${base}|action:${action}|destructive:${destructive}`;
     case 'state-indicator':
       return `state-indicator|${role}|${base}`;
     case 'container-variant':
     default:
-      return `container-variant|${role}|${base}|state:${state}|level:${level}|ctx:${ctx}|features:${features}|variant:${variant}`;
+      return `container-variant|${role}|${base}|state:${state}|action:${action}|destructive:${destructive}|level:${level}|ctx:${ctx}|features:${features}|variant:${variant}`;
   }
+}
+
+export function getAnatomyUniquenessKey(candidate: AnatomyCandidate): string {
+  return buildAnatomySemanticSignature(candidate);
 }
 
 export function getContainerVariantSignature(item: AnatomyCandidate | AnatomyItem): string {
@@ -94,12 +111,19 @@ function pickRepresentative(group: AnatomyCandidate[]): AnatomyCandidate {
   const pool = visible.length > 0 ? visible : group;
 
   if (pool[0]?.entityKind === 'container-variant') {
+    const destructive = pool.find((c) => c.isDestructive || c.stateName === 'Destructive');
+    if (destructive) return destructive;
     const selected = pool.find((c) => c.stateName === 'Selected');
     if (selected) return selected;
     const active = pool.find((c) => c.stateName === 'Active');
     if (active) return active;
     const def = pool.find((c) => c.stateName === 'Default');
     if (def) return def;
+  }
+
+  if (pool[0]?.entityKind === 'slot' || pool[0]?.entityKind === 'structure') {
+    const actionMatch = pool.find((c) => !!c.actionName);
+    if (actionMatch) return actionMatch;
   }
 
   if (pool[0]?.role === 'icon') {
@@ -179,17 +203,41 @@ export function buildFinalAnatomyLabel(item: AnatomyItem, allItems?: AnatomyItem
   return ordinal > 1 ? `${label} ${ordinal}` : label;
 }
 
-export function buildFinalAnatomyLabelRaw(item: AnatomyItem): string {
-  if (item.entityKind === 'container-variant') {
-    if (item.parentContextName && item.level === 'nested') {
-      let l = `${cleanDisplayName(item.parentContextName)} / ${cleanDisplayName(item.baseName)}`;
-      if (item.stateName) l += ` — ${item.stateName}`;
-      return l;
-    }
-    let l = cleanDisplayName(item.baseName);
-    if (item.stateName) l += ` — ${item.stateName}`;
-    return l;
+function isStandaloneAction(item: AnatomyItem): boolean {
+  if (!item.actionName) return false;
+  if (item.entityKind === 'slot') return true;
+  if (item.entityKind === 'structure') return true;
+  if (
+    item.entityKind === 'container-variant' &&
+    item.role !== 'menu-item' &&
+    item.role !== 'nested-menu'
+  ) {
+    return true;
   }
+  return false;
+}
+
+export function buildFinalAnatomyLabelRaw(item: AnatomyItem): string {
+  if (isStandaloneAction(item)) {
+    return `${item.actionName} action`;
+  }
+
+  if (item.entityKind === 'container-variant') {
+    const base = cleanDisplayName(item.baseName);
+    const prefix =
+      item.parentContextName && item.level === 'nested'
+        ? `${cleanDisplayName(item.parentContextName)} / ${base}`
+        : base;
+
+    if (item.stateName) {
+      return `${prefix} — ${item.stateName}`;
+    }
+    if (item.isDestructive) {
+      return `${prefix} — Destructive`;
+    }
+    return prefix;
+  }
+
   return cleanDisplayName(item.baseName);
 }
 

@@ -20,6 +20,7 @@ import {
   ANATOMY_POINTER_LABEL_GAP,
   ANATOMY_POINTER_RIGHT_OFFSET,
 } from './anatomyStyles';
+import { layoutLShapedAnatomyPointers } from './anatomyLShapedLayout';
 
 export function isVerticalPointerSide(side: AnatomyPointerSide): boolean {
   return side === 'top' || side === 'bottom';
@@ -491,22 +492,46 @@ function choosePointerSide(
   return pool[0];
 }
 
+/**
+ * Top-level entry point used by the anatomy generator.
+ *
+ * Uses the multi-side L-shaped layout (see `anatomyLShapedLayout.ts`) which
+ * picks the best side per item, distributes markers along each side to avoid
+ * overlap, and emits 1px-segment L-shaped connector routes.
+ *
+ * `rootBoundsRelative` is kept in the signature for backwards compatibility
+ * but is not needed by the L-shaped layout — the artwork is identified by
+ * `rootBoundsInPreview` in canvas coordinates.
+ */
 export function calculatePointerPlacements(
   items: AnatomyItem[],
-  rootBoundsRelative: AnatomyRect,
+  _rootBoundsRelative: AnatomyRect,
   rootBoundsInPreview: AnatomyRect,
   markerSize: number,
   markerOffset: number,
-  selectedNode?: SceneNode
+  _selectedNode?: SceneNode
 ): AnatomyPointerPlacement[] {
-  return layoutAnatomyPlacements(
+  if (items.length === 0) return [];
+
+  const markerSafeArea = markerSize + markerOffset + 8;
+  const rightColumnExtent = ANATOMY_POINTER_RIGHT_OFFSET + markerSize + 8;
+
+  // Preview group (= "canvas" for pointer geometry) — mirrors the size
+  // calculated by anatomyGenerator.createAnatomyFrame().
+  const canvasBounds: AnatomyRect = {
+    x: 0,
+    y: 0,
+    width: rootBoundsInPreview.x + rootBoundsInPreview.width + rightColumnExtent,
+    height: rootBoundsInPreview.y + rootBoundsInPreview.height + markerSafeArea,
+  };
+
+  return layoutLShapedAnatomyPointers({
     items,
-    rootBoundsRelative,
-    rootBoundsInPreview,
+    artworkBounds: rootBoundsInPreview,
+    canvasBounds,
     markerSize,
     markerOffset,
-    selectedNode
-  );
+  });
 }
 
 export function layoutAnatomyPlacements(

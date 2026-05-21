@@ -32,5 +32,5 @@ export const ACTIVE_FIRST_TOGGLE_ITEMS: ToggleItemConfig[] = [
   { key: 'variants', label: 'Варианты компонента', enabled: false },
   { key: 'behavior', label: 'Поведение', enabled: false },
   { key: 'usageScenarios', label: 'Сценарии использования', enabled: false },
-  { key: 'themes', label: 'Темы', enabled: false },
+  { key: 'themes', label: 'Темы', enabled: true },
 ];

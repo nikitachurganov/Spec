@@ -44,7 +44,8 @@ export function hasAnySpecificationBlock(settings: PluginSettings): boolean {
     settings.header ||
     settings.componentAnatomy ||
     settings.spec ||
-    settings.accessibility
+    settings.accessibility ||
+    settings.themes
   );
 }
 

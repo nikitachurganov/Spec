@@ -8,9 +8,11 @@ import {
   getCanonicalAnatomyBaseName,
 } from './anatomyFeatures';
 import {
+  detectAnatomyAction,
   extractStateName,
   getBaseDisplayName,
   getDisplayAnatomyName,
+  isDestructiveNode,
   normalizeName,
   type NamingContext,
 } from './anatomyNaming';
@@ -47,9 +49,15 @@ export function classifyAnatomyCandidate(
     parentContextName,
   });
 
+  const actionName = detectAnatomyAction(node) || undefined;
+  const isDestructive = isDestructiveNode(node);
+
   let stateName: string | undefined;
   if (entityKind === 'container-variant') {
     stateName = extractStateName(node) || undefined;
+    if (!stateName && isDestructive) {
+      stateName = 'Destructive';
+    }
   }
 
   const classified: AnatomyCandidate = {
@@ -61,6 +69,8 @@ export function classifyAnatomyCandidate(
     role,
     features,
     stateName,
+    actionName,
+    isDestructive,
     level,
     slotPosition,
     uniquenessKey: '',

@@ -6,8 +6,6 @@ import {
   normalizeName,
   type NamingContext,
 } from './anatomyNaming';
-import { classifyAnatomyCandidate } from './anatomyClassification';
-import { buildAnatomySequence } from './anatomyStructure';
 import type {
   AnatomyBounds,
   AnatomyCandidate,
@@ -17,6 +15,7 @@ import type {
   ComponentPropertyMetadata,
 } from './anatomyTypes';
 import { mergeAnatomyOptions } from './anatomyStyles';
+import { runAnatomyPipeline } from './anatomyPipeline';
 
 function includesAny(value: string, patterns: string[]): boolean {
   return patterns.some((p) => value.includes(p));
@@ -303,26 +302,6 @@ function removeDuplicateCandidatesByNodeId(candidates: AnatomyCandidate[]): Anat
   return result;
 }
 
-function buildNodeIndex(rootNode: SceneNode): Map<string, SceneNode> {
-  const index = new Map<string, SceneNode>();
-  const queue: SceneNode[] = [rootNode];
-
-  while (queue.length > 0) {
-    const node = queue.shift();
-    if (!node) {
-      continue;
-    }
-    index.set(node.id, node);
-    if ('children' in node && Array.isArray(node.children)) {
-      for (const child of node.children) {
-        queue.push(child as SceneNode);
-      }
-    }
-  }
-
-  return index;
-}
-
 export function collectAnatomyCandidates(
   rootNode: SceneNode,
   options: AnatomyGeneratorOptions,
@@ -373,46 +352,6 @@ export function collectAnatomyCandidates(
   return removeDuplicateCandidatesByNodeId(raw);
 }
 
-function sequenceToAnatomyItems(
-  rootNode: SceneNode,
-  options: AnatomyGeneratorOptions,
-  namingContext: NamingContext
-): AnatomyItem[] {
-  const sequence = buildAnatomySequence(rootNode, options);
-  const maxItems = options.maxItems ?? 8;
-  const capped = sequence.length > maxItems ? sequence.slice(0, maxItems) : sequence;
-
-  if (capped.length < sequence.length) {
-    console.warn(`[Spec] Anatomy items capped from ${sequence.length} to ${capped.length}.`);
-  }
-
-  const nodeIndex = buildNodeIndex(rootNode);
-
-  return capped.map((layoutItem, index) => {
-    const node = nodeIndex.get(layoutItem.nodeId) ?? null;
-    if (!node) {
-      throw new Error(`Anatomy node not found: ${layoutItem.nodeId}`);
-    }
-
-    const depth = layoutItem.level === 'child' ? 2 : 1;
-    const stub = createStubCandidate(node, rootNode, depth, layoutItem.parentIndex ?? undefined);
-    const classified = classifyAnatomyCandidate(stub, rootNode, namingContext);
-    const markerIndex = index + 1;
-
-    return {
-      ...classified,
-      markerIndex,
-      index: markerIndex,
-      anatomyIndex: layoutItem.index,
-      finalLabel: layoutItem.index,
-      name: classified.displayName || layoutItem.index,
-      representedCount: 1,
-      representedNodeIds: [node.id],
-      level: layoutItem.level === 'child' ? 'nested' : 'root',
-    };
-  });
-}
-
 export function collectSemanticAnatomyItems(
   rootNode: SceneNode,
   options?: AnatomyGeneratorOptions
@@ -426,56 +365,54 @@ export function collectSemanticAnatomyItems(
     useComponentPropertyNames: merged.useComponentPropertyNames,
   };
 
-  let items = sequenceToAnatomyItems(rootNode, merged, namingContext);
+  const items = runAnatomyPipeline(rootNode, merged, namingContext);
 
-  if (merged.includeContainer) {
-    const containerBounds = toAnatomyBounds({
-      x: 0,
-      y: 0,
-      width: rootNode.width,
-      height: rootNode.height,
-    });
-
-    const containerRow: AnatomyItem = {
-      node: rootNode,
-      nodeId: rootNode.id,
-      nodePath: [],
-      depth: 0,
-      rawName: rootNode.name || '',
-      displayName: 'Container',
-      baseName: 'Container',
-      finalLabel: 'Container',
-      entityKind: 'container-variant',
-      role: 'container',
-      features: [],
-      level: 'root',
-      bounds: containerBounds,
-      uniquenessKey: 'container',
-      markerIndex: 1,
-      representedCount: 1,
-      representedNodeIds: [rootNode.id],
-      index: 1,
-      id: rootNode.id,
-      name: 'Container',
-    };
-
-    const renumbered = items.map((item, i) => {
-      const anatomyIndex = String(i + 2);
-      return {
-        ...item,
-        markerIndex: i + 2,
-        index: i + 2,
-        anatomyIndex,
-        finalLabel: anatomyIndex,
-        id: item.nodeId,
-        name: item.finalLabel,
-      };
-    });
-
-    return [{ ...containerRow, anatomyIndex: '1', finalLabel: '1' }, ...renumbered];
+  if (!merged.includeContainer) {
+    return items;
   }
 
-  return items;
+  const containerBounds = toAnatomyBounds({
+    x: 0,
+    y: 0,
+    width: rootNode.width,
+    height: rootNode.height,
+  });
+
+  const containerRow: AnatomyItem = {
+    node: rootNode,
+    nodeId: rootNode.id,
+    nodePath: [],
+    depth: 0,
+    rawName: rootNode.name || '',
+    displayName: 'Container',
+    baseName: 'Container',
+    finalLabel: 'Container',
+    entityKind: 'container-variant',
+    role: 'container',
+    features: [],
+    level: 'root',
+    bounds: containerBounds,
+    uniquenessKey: 'container',
+    markerIndex: 1,
+    representedCount: 1,
+    representedNodeIds: [rootNode.id],
+    index: 1,
+    id: rootNode.id,
+    name: 'Container',
+  };
+
+  const renumbered = items.map((item, i) => {
+    const markerIndex = i + 2;
+    return {
+      ...item,
+      markerIndex,
+      index: markerIndex,
+      id: item.nodeId,
+      name: item.finalLabel,
+    };
+  });
+
+  return [containerRow, ...renumbered];
 }
 
 /** @deprecated use buildAnatomySequence */

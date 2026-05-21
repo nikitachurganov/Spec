@@ -78,6 +78,10 @@ export type AnatomyCandidate = {
 
   stateName?: string;
   variantName?: string;
+  /** Semantic action role: 'Delete', 'Edit', 'Add', 'Close', 'Search', 'More'. */
+  actionName?: string;
+  /** True if the node is a destructive/danger/delete case. */
+  isDestructive?: boolean;
   parentContextName?: string;
   level: AnatomyLevel;
   slotPosition?: SlotPosition;

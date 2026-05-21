@@ -2,7 +2,15 @@
 
 import type { AnatomyItem, ComponentPropertyMetadata } from './anatomyTypes';
 
-const STATE_VARIANT_KEYS = ['State', 'state', 'Состояние', 'status', 'Status'];
+const STATE_VARIANT_KEYS = [
+  'State',
+  'state',
+  'Состояние',
+  'status',
+  'Status',
+  'Variant',
+  'variant',
+];
 const STATE_NAME_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\bselected\b/i, label: 'Selected' },
   { pattern: /\bactive\b/i, label: 'Active' },
@@ -13,12 +21,29 @@ const STATE_NAME_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\bexpanded\b/i, label: 'Expanded' },
   { pattern: /\bcollapsed\b/i, label: 'Collapsed' },
   { pattern: /\berror\b/i, label: 'Error' },
+  { pattern: /\b(destructive|danger)\b/i, label: 'Destructive' },
   { pattern: /\bdefault\b/i, label: 'Default' },
   { pattern: /\bfocused\b/i, label: 'Focused' },
 ];
 
 const STATE_SUFFIX_WORDS =
-  'default|selected|active|disabled|hover|pressed|focused|error|expanded|collapsed|current';
+  'default|selected|active|disabled|hover|pressed|focused|error|expanded|collapsed|current|destructive|danger';
+
+/** Action keywords: maps regex to canonical action label. */
+const ACTION_NAME_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+  {
+    pattern: /\b(delete|remove|trash|bin|удалить|удаление|корзина)\b/i,
+    label: 'Delete',
+  },
+  { pattern: /\b(edit|pencil|редактировать)\b/i, label: 'Edit' },
+  { pattern: /\b(add|plus|create|добавить)\b/i, label: 'Add' },
+  { pattern: /\b(close|cross|dismiss|закрыть)\b/i, label: 'Close' },
+  { pattern: /\b(search|поиск)\b/i, label: 'Search' },
+  { pattern: /\b(more|kebab|dots)\b/i, label: 'More' },
+];
+
+const DESTRUCTIVE_NAME_PATTERN =
+  /\b(delete|remove|trash|bin|danger|destructive|удалить|удаление|корзина)\b/i;
 
 const GENERIC_CONTAINER_NAMES = new Set(
   [
@@ -89,13 +114,30 @@ function formatStateLabel(raw: string): string {
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
+function normalizeStateValueLabel(raw: string): string {
+  const v = String(raw || '').trim().toLowerCase();
+  if (!v) return 'Default';
+  if (/(destructive|danger|delete|remove)/.test(v)) return 'Destructive';
+  if (/selected/.test(v)) return 'Selected';
+  if (/current/.test(v)) return 'Current';
+  if (/active/.test(v)) return 'Active';
+  if (/disabled/.test(v)) return 'Disabled';
+  if (/hover/.test(v)) return 'Hover';
+  if (/pressed/.test(v)) return 'Pressed';
+  if (/focused/.test(v)) return 'Focused';
+  if (/expanded/.test(v)) return 'Expanded';
+  if (/collapsed/.test(v)) return 'Collapsed';
+  if (/error/.test(v)) return 'Error';
+  return formatStateLabel(raw);
+}
+
 export function extractStateName(node: SceneNode): string | null {
   if (node.type === 'INSTANCE' && node.variantProperties) {
     for (const key of STATE_VARIANT_KEYS) {
       if (key in node.variantProperties) {
         const value = node.variantProperties[key];
         if (typeof value === 'string' && value.trim()) {
-          return formatStateLabel(value);
+          return normalizeStateValueLabel(value);
         }
       }
     }
@@ -113,9 +155,12 @@ export function extractStateName(node: SceneNode): string | null {
         lower.includes('checked') ||
         lower.includes('current') ||
         lower.includes('expanded') ||
-        lower.includes('disabled')
+        lower.includes('disabled') ||
+        lower.includes('destructive') ||
+        lower.includes('danger')
       ) {
         if (entry.value === true) {
+          if (lower.includes('destructive') || lower.includes('danger')) return 'Destructive';
           if (lower.includes('selected')) return 'Selected';
           if (lower.includes('disabled')) return 'Disabled';
           if (lower.includes('expanded')) return 'Expanded';
@@ -135,6 +180,130 @@ export function extractStateName(node: SceneNode): string | null {
   }
 
   return null;
+}
+
+/**
+ * Detects a semantic action role for the node from layer name, main component name,
+ * variant properties, and component property values.
+ * Returns 'Delete' | 'Edit' | 'Add' | 'Close' | 'Search' | 'More' or null.
+ */
+export function detectAnatomyAction(node: SceneNode): string | null {
+  const names: string[] = [];
+  names.push(String(node.name || ''));
+
+  if (node.type === 'INSTANCE') {
+    const inst = node as InstanceNode;
+    try {
+      const main = inst.mainComponent;
+      if (main && main.name) names.push(String(main.name));
+      if (main && main.parent && 'name' in main.parent && main.parent.name) {
+        names.push(String(main.parent.name));
+      }
+    } catch (_err) {
+      // mainComponent may be unavailable in async dynamic-page mode; safely ignore.
+    }
+
+    if (inst.variantProperties) {
+      for (const key of Object.keys(inst.variantProperties)) {
+        const val = inst.variantProperties[key];
+        if (typeof val === 'string') names.push(`${key}=${val}`);
+      }
+    }
+
+    if (inst.componentProperties) {
+      const props = inst.componentProperties;
+      for (const key of Object.keys(props)) {
+        const lower = key.toLowerCase();
+        const entry = props[key];
+        if (!entry) continue;
+        if (entry.type === 'BOOLEAN' && entry.value === true) {
+          if (lower.includes('delete') || lower.includes('remove') || lower.includes('trash')) {
+            return 'Delete';
+          }
+          if (lower.includes('destructive') || lower.includes('danger')) {
+            return 'Delete';
+          }
+          if (lower.includes('edit')) return 'Edit';
+          if (lower.includes('add')) return 'Add';
+          if (lower.includes('close') || lower.includes('dismiss')) return 'Close';
+          if (lower.includes('search')) return 'Search';
+        }
+        if (entry.type === 'TEXT' && typeof entry.value === 'string') {
+          names.push(`${key}=${entry.value}`);
+        }
+        if (entry.type === 'VARIANT' && typeof entry.value === 'string') {
+          names.push(`${key}=${entry.value}`);
+        }
+      }
+    }
+  }
+
+  const haystack = names.join(' ').toLowerCase();
+  for (const { pattern, label } of ACTION_NAME_PATTERNS) {
+    if (pattern.test(haystack)) {
+      return label;
+    }
+  }
+  return null;
+}
+
+/**
+ * True if the node represents a destructive/danger/delete case.
+ * Covers layer name, main component name, variant/component properties.
+ */
+export function isDestructiveNode(node: SceneNode): boolean {
+  const name = String(node.name || '');
+  if (DESTRUCTIVE_NAME_PATTERN.test(name)) return true;
+
+  if (node.type === 'INSTANCE') {
+    const inst = node as InstanceNode;
+    try {
+      const main = inst.mainComponent;
+      const mainName = main?.name || '';
+      if (mainName && DESTRUCTIVE_NAME_PATTERN.test(mainName)) return true;
+      const setName = main?.parent && 'name' in main.parent ? String(main.parent.name) : '';
+      if (setName && DESTRUCTIVE_NAME_PATTERN.test(setName)) return true;
+    } catch (_err) {
+      // ignore main component access errors
+    }
+
+    if (inst.variantProperties) {
+      for (const key of Object.keys(inst.variantProperties)) {
+        const val = inst.variantProperties[key];
+        if (typeof val === 'string' && /(destructive|danger|delete|remove)/i.test(val)) {
+          return true;
+        }
+      }
+    }
+
+    if (inst.componentProperties) {
+      const props = inst.componentProperties;
+      for (const key of Object.keys(props)) {
+        const lower = key.toLowerCase();
+        const entry = props[key];
+        if (!entry) continue;
+        if (
+          entry.type === 'BOOLEAN' &&
+          entry.value === true &&
+          (lower.includes('destructive') ||
+            lower.includes('danger') ||
+            lower.includes('delete') ||
+            lower.includes('remove'))
+        ) {
+          return true;
+        }
+        if (
+          (entry.type === 'TEXT' || entry.type === 'VARIANT') &&
+          typeof entry.value === 'string' &&
+          /(destructive|danger|delete|remove)/i.test(entry.value)
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 function stripStateFromName(name: string, stateName: string | null): string {

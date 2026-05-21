@@ -1,0 +1,233 @@
+.tree,
+.children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tree {
+  font-size: 14px;
+  line-height: 20px;
+  color: #1c1f23;
+}
+
+/* ─── Tree item container ─────────────────────────────────────────── */
+
+.treeItem {
+  position: relative;
+}
+
+/* ─── Child connector lines ───────────────────────────────────────── */
+
+/*
+ * Vertical segment of the L-connector for every child.
+ * Inherits --conn-x (parent's chevron center x) from the .children ul.
+ *
+ * Non-last children: full height (connects downward to the next sibling).
+ * Last child: only the top half (stops at row midpoint).
+ */
+.children > .treeItem::after {
+  content: '';
+  position: absolute;
+  left: var(--conn-x);
+  top: 0;
+  height: 100%; /* continues through expanded grandchildren */
+  width: 1px;
+  background: #d9d9d9;
+  pointer-events: none;
+}
+
+.children > .treeItem:last-child::after {
+  height: 16px; /* stop at this row's vertical midpoint */
+}
+
+/* ─── Row ─────────────────────────────────────────────────────────── */
+
+.treeRow {
+  position: relative; /* needed for ::before horizontal connector */
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  border-radius: 6px;
+  padding-left: 8px;
+  padding-right: 8px;
+  cursor: default;
+  font-size: 14px;
+  line-height: 20px;
+  user-select: none;
+}
+
+.treeRowNoSwitcher {
+  /* 4px extra on top of base 8px = visual offset equal to row's vertical inset (32 - 24)/2 */
+  padding-left: 12px;
+}
+
+.treeRow:hover {
+  background: #f5f5f5;
+}
+
+.treeRowSelected {
+  background: #e6f4ff;
+}
+
+.treeRowSelected:hover {
+  background: #d5ecff;
+}
+
+.treeRowDisabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/*
+ * Horizontal segment of the L-connector.
+ * Drawn on every row that is a direct child of .children (non-root rows).
+ * Runs from the parent's chevron center (--conn-x) rightward (--conn-w),
+ * terminating just before the child's chevron button so the chevron
+ * itself is never overlapped by the connector line.
+ * Positioned at y=16 (row vertical midpoint).
+ *
+ * Both --conn-x and --conn-w are set on the .children ul via inline style.
+ */
+.children .treeRow::before {
+  content: '';
+  position: absolute;
+  left: var(--conn-x);
+  top: 16px;
+  width: var(--conn-w);
+  height: 1px;
+  background: #d9d9d9;
+  pointer-events: none;
+}
+
+/* ─── Indent ──────────────────────────────────────────────────────── */
+
+.indent {
+  /* sizing comes from inline style: width = level * 24px */
+  flex: none;
+  display: inline-block;
+}
+
+/* ─── Switcher ────────────────────────────────────────────────────── */
+
+.switcher {
+  position: relative; /* keep chevron above connector pseudo-elements */
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: #595959;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.switcher:hover {
+  color: #1c1f23;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.switcher:focus-visible {
+  outline: 2px solid #1677ff;
+  outline-offset: 2px;
+}
+
+.switcherPlaceholder {
+  position: relative;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+.switcherIcon {
+  width: 12px;
+  height: 12px;
+  display: inline-block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ─── Checkbox ────────────────────────────────────────────────────── */
+
+.checkboxWrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+.checkbox {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: #1677ff;
+}
+
+.checkbox:disabled {
+  cursor: not-allowed;
+}
+
+/* ─── Title ───────────────────────────────────────────────────────── */
+
+.title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 4px;
+}
+
+/* ─── Meta tag ────────────────────────────────────────────────────── */
+
+.metaTag {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: #f2edff;
+  color: #733aff;
+  flex: none;
+}
+
+.metaTagIcon {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Master / component: solid filled diamond. */
+.metaTagIcon[data-icon='master'] {
+  fill: currentColor;
+  stroke: none;
+}
+
+/* Child / instance: outlined diamond. */
+.metaTagIcon[data-icon='child'] {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+}
