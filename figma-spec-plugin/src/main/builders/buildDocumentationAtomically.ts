@@ -71,6 +71,8 @@ export async function buildDocumentationAtomically(params: {
       originalPage,
       settings: params.settings,
     });
+    finalFrame.setPluginData('isGeneratedDocumentation', 'true');
+    finalFrame.setPluginData('sourceNodeId', params.selectedNode.id);
 
     ensureNodeOnStagingPage(stagingPage, finalFrame);
     removeLeakedTopLevelNodes(originalPage, originalTopLevelIds);

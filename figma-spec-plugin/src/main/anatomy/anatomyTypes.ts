@@ -8,6 +8,13 @@ export type AnatomyRect = {
   height: number;
 };
 
+export type Point = {
+  x: number;
+  y: number;
+};
+
+export type Rect = AnatomyRect;
+
 export type AnatomyBounds = AnatomyRect & {
   centerX: number;
   centerY: number;
@@ -65,6 +72,10 @@ export type SlotPosition = 'leading' | 'trailing' | 'none' | 'nested';
 export type AnatomyCandidate = {
   node: SceneNode;
   nodeId: string;
+  sourceNodeId: string;
+  sourceNodeName: string;
+  selectedPath?: string;
+  isManualSelection?: boolean;
   nodePath: number[];
   depth: number;
 
@@ -93,6 +104,7 @@ export type AnatomyCandidate = {
 export type AnatomyItem = AnatomyCandidate & {
   markerIndex: number;
   finalLabel: string;
+  targetBounds?: Rect;
   /** Hierarchical anatomy index shown on markers, e.g. "1", "1.1", "2.2". */
   anatomyIndex?: string;
   representedCount: number;
@@ -101,6 +113,9 @@ export type AnatomyItem = AnatomyCandidate & {
   index?: number;
   /** @deprecated use nodeId */
   id?: string;
+  sourceNodeId?: string;
+  selectedPath?: string;
+  isManualSelection?: boolean;
   /** @deprecated use finalLabel */
   name?: string;
   type?: SceneNode['type'];
@@ -129,6 +144,51 @@ export type AnatomyPointerPlacement = {
   segments: AnatomyConnectorSegment[];
 };
 
+export type PointerSide = AnatomyPointerSide;
+
+export type AnatomyPointerTarget = {
+  itemId: string;
+  markerIndex: number;
+  label: string;
+  targetBounds: Rect;
+  targetCenter: Point;
+};
+
+export type StraightConnectorLine = {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+};
+
+export type ConnectorObstacle = {
+  id: string;
+  kind: 'accent' | 'target' | 'marker';
+  bounds: Rect;
+  relatedItemId?: string;
+};
+
+export type PointerCandidate = {
+  itemId: string;
+  markerIndex: number;
+  side: PointerSide;
+  markerCenter: Point;
+  markerBounds: Rect;
+  targetPoint: Point;
+  line: StraightConnectorLine;
+  score: number;
+};
+
+export type FinalPointerPlacement = {
+  itemId: string;
+  markerIndex: number;
+  side: PointerSide;
+  markerCenter: Point;
+  markerBounds: Rect;
+  targetPoint: Point;
+  line: StraightConnectorLine;
+};
+
 export type {
   AnatomyPointerLayoutInput,
   AnatomyPointerLayoutResult,
@@ -137,7 +197,6 @@ export type {
   AnatomyPointerRow,
   AnatomyRouteEntryMode,
   LayoutAnatomyPointersRightSideParams,
-  Point,
   Bounds,
 } from './anatomyPointerLayout';
 
@@ -183,4 +242,5 @@ export type AnatomyGeneratorOptions = {
   useComponentPropertyNames?: boolean;
   componentPropertyMetadata?: ComponentPropertyMetadata;
   anatomyRootNodeForNames?: SceneNode;
+  selectedLayerPaths?: string[];
 };

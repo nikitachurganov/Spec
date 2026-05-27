@@ -1,0 +1,144 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.headerTitle {
+  margin: 0;
+  color: #4e4e4e;
+  font-size: 13px;
+  line-height: 130%;
+  font-weight: 700;
+}
+
+.controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.controlBtn {
+  height: 28px;
+  min-width: 28px;
+  border: 1px solid #d9d9d9;
+  background: #ffffff;
+  color: #333333;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 8px;
+}
+
+.zoomText {
+  color: #4e4e4e;
+  font-size: 12px;
+  line-height: 130%;
+  min-width: 44px;
+  text-align: center;
+}
+
+.card {
+  position: relative;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 8px;
+  overflow: hidden;
+  height: 300px;
+  min-height: 220px;
+}
+
+.canvas {
+  position: relative;
+  user-select: none;
+}
+
+.image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+}
+
+.overlayPanning {
+  cursor: grabbing;
+}
+
+.viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.hotspot {
+  position: absolute;
+  pointer-events: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+
+.hotspotSelected {
+  border-color: #fc8507;
+  background: rgba(252, 133, 7, 0.08);
+}
+
+.hotspotHover {
+  border-color: rgba(252, 133, 7, 0.7);
+}
+
+.picker {
+  position: fixed;
+  min-width: 180px;
+  max-width: 280px;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 9999;
+}
+
+.pickerItem {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  color: #333333;
+  font-size: 13px;
+  line-height: 130%;
+  cursor: pointer;
+}
+
+.pickerItem:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.pickerItemSelected {
+  color: #fc8507;
+  font-weight: 700;
+}
+
+.fallback {
+  margin: 0;
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 130%;
+}

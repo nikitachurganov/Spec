@@ -39,6 +39,7 @@ export function normalizePluginSettings(input: unknown): PluginSettings {
     componentAnatomy,
     spec,
     specSelectedLayerPaths: normalizeStringArray(o.specSelectedLayerPaths),
+    anatomySelectedLayerPaths: normalizeStringArray(o.anatomySelectedLayerPaths),
     variants: typeof o.variants === 'boolean' ? o.variants : DEFAULT_PLUGIN_SETTINGS.variants,
     behavior: typeof o.behavior === 'boolean' ? o.behavior : DEFAULT_PLUGIN_SETTINGS.behavior,
     usageScenarios:

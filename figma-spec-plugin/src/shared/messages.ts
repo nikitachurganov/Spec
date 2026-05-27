@@ -1,4 +1,5 @@
 import type { PluginSettings } from './settings';
+import type { AnatomyPreviewPayload } from './anatomyPreview';
 
 export type SpecLayerOption = {
   path: string;
@@ -9,6 +10,9 @@ export type SpecLayerOption = {
   isAutoSelected: boolean;
   isSelectable: boolean;
   isComponentBoundary: boolean;
+  isRoot?: boolean;
+  isText?: boolean;
+  kind?: string;
 };
 
 export type BuildSpecificationMessage = {
@@ -40,12 +44,29 @@ export type SaveSpecSelectedLayersMessage = {
   };
 };
 
+export type SaveAnatomySelectedLayersMessage = {
+  type: 'SAVE_ANATOMY_SELECTED_LAYERS';
+  payload: {
+    selectedLayerPaths: string[];
+  };
+};
+
+export type ResizePluginMessage = {
+  type: 'RESIZE_PLUGIN';
+  payload: {
+    width: number;
+    height: number;
+  };
+};
+
 export type UiToMainMessage =
   | BuildSpecificationMessage
   | GetSettingsMessage
   | SaveSettingsMessage
   | GetSpecLayerOptionsMessage
-  | SaveSpecSelectedLayersMessage;
+  | SaveSpecSelectedLayersMessage
+  | SaveAnatomySelectedLayersMessage
+  | ResizePluginMessage;
 
 export type SpecificationBuiltMessage = {
   type: 'SPECIFICATION_BUILT';
@@ -74,8 +95,10 @@ export type SpecLayerOptionsLoadedMessage = {
     rootId: string;
     rootName: string;
     options: SpecLayerOption[];
-    selectedLayerPaths: string[];
+    specSelectedLayerPaths: string[];
+    anatomySelectedLayerPaths: string[];
     autoSelectedLayerPaths: string[];
+    anatomyPreviewPayload: AnatomyPreviewPayload | null;
   };
 };
 

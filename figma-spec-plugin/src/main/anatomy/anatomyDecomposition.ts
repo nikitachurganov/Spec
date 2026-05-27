@@ -6,6 +6,8 @@ import {
   normalizeName,
   type NamingContext,
 } from './anatomyNaming';
+import { getNodeByPath } from '../figma/nodePath';
+import { getNodeVisualBounds } from '../figma/visualBounds';
 import type {
   AnatomyBounds,
   AnatomyCandidate,
@@ -15,7 +17,15 @@ import type {
   ComponentPropertyMetadata,
 } from './anatomyTypes';
 import { mergeAnatomyOptions } from './anatomyStyles';
-import { runAnatomyPipeline } from './anatomyPipeline';
+import { runAnatomyPipeline, runAnatomyPipelineFromCandidates } from './anatomyPipeline';
+
+const anatomyWarnedMessages = new Set<string>();
+
+function warnOnce(key: string, message: string): void {
+  if (anatomyWarnedMessages.has(key)) return;
+  anatomyWarnedMessages.add(key);
+  console.warn(message);
+}
 
 function includesAny(value: string, patterns: string[]): boolean {
   return patterns.some((p) => value.includes(p));
@@ -223,6 +233,28 @@ export function toAnatomyBounds(rect: AnatomyRect): AnatomyBounds {
 }
 
 export function getRelativeBounds(node: SceneNode, rootNode: SceneNode): AnatomyBounds {
+  try {
+    const nodeVisual = getNodeVisualBounds(node, { includeInvisible: false, includeAbsoluteChildren: true });
+    const rootVisual = getNodeVisualBounds(rootNode, { includeInvisible: false, includeAbsoluteChildren: true });
+    if (
+      Number.isFinite(nodeVisual.x) &&
+      Number.isFinite(nodeVisual.y) &&
+      Number.isFinite(nodeVisual.width) &&
+      Number.isFinite(nodeVisual.height) &&
+      Number.isFinite(rootVisual.x) &&
+      Number.isFinite(rootVisual.y)
+    ) {
+      return toAnatomyBounds({
+        x: nodeVisual.x - rootVisual.x,
+        y: nodeVisual.y - rootVisual.y,
+        width: Math.max(1, nodeVisual.width),
+        height: Math.max(1, nodeVisual.height),
+      });
+    }
+  } catch {
+    // Fallback to node/root absolute bounds below.
+  }
+
   const nodeBox = node.absoluteBoundingBox;
   const rootBox = rootNode.absoluteBoundingBox;
 
@@ -230,16 +262,16 @@ export function getRelativeBounds(node: SceneNode, rootNode: SceneNode): Anatomy
     return toAnatomyBounds({
       x: nodeBox.x - rootBox.x,
       y: nodeBox.y - rootBox.y,
-      width: nodeBox.width,
-      height: nodeBox.height,
+      width: Math.max(1, nodeBox.width),
+      height: Math.max(1, nodeBox.height),
     });
   }
 
   return toAnatomyBounds({
     x: 'x' in node ? node.x : 0,
     y: 'y' in node ? node.y : 0,
-    width: node.width,
-    height: node.height,
+    width: Math.max(1, node.width),
+    height: Math.max(1, node.height),
   });
 }
 
@@ -268,12 +300,20 @@ function createStubCandidate(
   node: SceneNode,
   rootNode: SceneNode,
   depth: number,
-  parentContextName?: string
+  parentContextName?: string,
+  metadata?: {
+    selectedPath?: string;
+    isManualSelection?: boolean;
+  }
 ): AnatomyCandidate {
   const bounds = getRelativeBounds(node, rootNode);
   return {
     node,
     nodeId: node.id,
+    sourceNodeId: node.id,
+    sourceNodeName: node.name || '',
+    selectedPath: metadata?.selectedPath,
+    isManualSelection: metadata?.isManualSelection,
     nodePath: getNodePathFromRoot(rootNode, node),
     depth,
     rawName: node.name || '',
@@ -365,7 +405,19 @@ export function collectSemanticAnatomyItems(
     useComponentPropertyNames: merged.useComponentPropertyNames,
   };
 
-  const items = runAnatomyPipeline(rootNode, merged, namingContext);
+  const selectedLayerPaths = Array.isArray(merged.selectedLayerPaths)
+    ? merged.selectedLayerPaths.filter(Boolean)
+    : [];
+
+  const selectedCandidates =
+    selectedLayerPaths.length > 0
+      ? collectAnatomyCandidatesFromSelectedPaths(rootNode, selectedLayerPaths, merged)
+      : [];
+
+  const items =
+    selectedCandidates.length > 0
+      ? runAnatomyPipelineFromCandidates(selectedCandidates, rootNode, merged, namingContext)
+      : runAnatomyPipeline(rootNode, merged, namingContext);
 
   if (!merged.includeContainer) {
     return items;
@@ -381,6 +433,8 @@ export function collectSemanticAnatomyItems(
   const containerRow: AnatomyItem = {
     node: rootNode,
     nodeId: rootNode.id,
+    sourceNodeId: rootNode.id,
+    sourceNodeName: rootNode.name || '',
     nodePath: [],
     depth: 0,
     rawName: rootNode.name || '',
@@ -413,6 +467,100 @@ export function collectSemanticAnatomyItems(
   });
 
   return [containerRow, ...renumbered];
+}
+
+function parsePathKey(path: string): number[] {
+  if (!path) return [];
+  return path
+    .split('/')
+    .map((part) => Number(part))
+    .filter((part) => Number.isInteger(part) && part >= 0);
+}
+
+function collectAnatomyCandidatesFromSelectedPaths(
+  rootNode: SceneNode,
+  selectedLayerPaths: string[],
+  options: AnatomyGeneratorOptions
+): AnatomyCandidate[] {
+  const maxDepth = options.maxDepth ?? 8;
+  const selectedCandidates: AnatomyCandidate[] = [];
+  const seenPaths = new Set<string>();
+  const seenNodeIds = new Set<string>();
+
+  for (const pathKey of selectedLayerPaths) {
+    if (seenPaths.has(pathKey)) continue;
+    seenPaths.add(pathKey);
+
+    const indexPath = parsePathKey(pathKey);
+    if (indexPath.length === 0 && pathKey !== '') {
+      warnOnce(
+        `anatomy-selected-path-invalid:${pathKey}`,
+        `[Anatomy] Selected path "${pathKey}" is invalid and was skipped.`
+      );
+      continue;
+    }
+
+    const node = getNodeByPath(rootNode, indexPath);
+    if (!node) {
+      warnOnce(
+        `anatomy-selected-path-missing:${pathKey}`,
+        `[Anatomy] Selected path "${pathKey}" was not found in current root.`
+      );
+      continue;
+    }
+
+    const nodeRef = `${node.name || node.type} (${node.id})`;
+
+    if (!options.includeHidden && 'visible' in node && node.visible === false) {
+      warnOnce(
+        `anatomy-selected-node-hidden:${pathKey}:${node.id}`,
+        `[Anatomy] Selected path "${pathKey}" -> ${nodeRef} skipped: node is invisible.`
+      );
+      continue;
+    }
+    if (isServiceNode(node)) {
+      warnOnce(
+        `anatomy-selected-node-service:${pathKey}:${node.id}`,
+        `[Anatomy] Selected path "${pathKey}" -> ${nodeRef} skipped: service/helper node.`
+      );
+      continue;
+    }
+
+    const walkRole = getAnatomyWalkRole(node, rootNode);
+    if (walkRole === 'skip' && node.type !== 'TEXT') {
+      warnOnce(
+        `anatomy-selected-node-skip:${pathKey}:${node.id}`,
+        `[Anatomy] Selected path "${pathKey}" -> ${nodeRef} skipped: walk role is "skip".`
+      );
+      continue;
+    }
+
+    const depth = Math.min(indexPath.length, maxDepth);
+    if (seenNodeIds.has(node.id)) {
+      warnOnce(
+        `anatomy-selected-node-duplicate:${pathKey}:${node.id}`,
+        `[Anatomy] Selected path "${pathKey}" -> ${nodeRef} duplicates an already selected node and was merged by node id.`
+      );
+      continue;
+    }
+
+    const candidate = createStubCandidate(node, rootNode, depth, undefined, {
+      selectedPath: pathKey,
+      isManualSelection: true,
+    });
+    if (!Number.isFinite(candidate.bounds.x) || !Number.isFinite(candidate.bounds.y)) {
+      warnOnce(
+        `anatomy-selected-node-bounds:${pathKey}:${node.id}`,
+        `[Anatomy] Selected path "${pathKey}" -> ${nodeRef} skipped: invalid bounds.`
+      );
+      continue;
+    }
+
+    selectedCandidates.push(candidate);
+    seenNodeIds.add(node.id);
+  }
+
+  return selectedCandidates;
 }
 
 /** @deprecated use buildAnatomySequence */

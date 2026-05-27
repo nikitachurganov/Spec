@@ -1,35 +1,34 @@
 /// <reference types="@figma/plugin-typings" />
 
 import type { PluginSettings } from '../../shared/settings';
+import type { AnatomyPreviewPayload } from '../../shared/anatomyPreview';
 import { ensureDocumentReadyForTraversal } from '../figma/documentAccess';
+import { buildAnatomyPreviewPayload } from '../anatomy/buildAnatomyPreviewPayload';
 import {
   collectSpecLayerOptions,
   type CollectSpecLayerOptionsResult,
 } from './collectSpecLayerOptions';
 
-function isSupportedRoot(node: BaseNode): node is SceneNode {
+export function isSupportedRoot(node: BaseNode): node is SceneNode {
   return (
     node.type === 'FRAME' ||
     node.type === 'COMPONENT' ||
     node.type === 'COMPONENT_SET' ||
-    node.type === 'INSTANCE' ||
-    node.type === 'GROUP' ||
-    node.type === 'SECTION'
+    node.type === 'INSTANCE'
   );
 }
 
 function resolveSelectedPaths(
   storedPaths: string[],
-  autoSelectedLayerPaths: string[],
+  _autoSelectedLayerPaths: string[],
   validPaths: Set<string>
 ): string[] {
-  const filteredStored = storedPaths.filter((p) => validPaths.has(p));
+  return storedPaths.filter((p) => validPaths.has(p));
+}
 
-  if (storedPaths.length === 0) {
-    return autoSelectedLayerPaths.filter((p) => validPaths.has(p));
-  }
-
-  return filteredStored;
+function resolveManualSelectedPaths(storedPaths: string[], validPaths: Set<string>): string[] {
+  if (!storedPaths.length) return [];
+  return storedPaths.filter((p) => validPaths.has(p));
 }
 
 export type HandleSpecLayerOptionsResult =
@@ -38,33 +37,41 @@ export type HandleSpecLayerOptionsResult =
       rootId: string;
       rootName: string;
       options: CollectSpecLayerOptionsResult['options'];
-      selectedLayerPaths: string[];
+      specSelectedLayerPaths: string[];
+      anatomySelectedLayerPaths: string[];
       autoSelectedLayerPaths: string[];
+      anatomyPreviewPayload: AnatomyPreviewPayload | null;
     }
   | { ok: false; message: string };
 
+const anatomyPreviewCacheByRootId = new Map<string, AnatomyPreviewPayload>();
+
 export async function handleGetSpecLayerOptions(
-  settings: PluginSettings
+  settings: PluginSettings,
+  sourceRoot?: SceneNode
 ): Promise<HandleSpecLayerOptionsResult> {
   await ensureDocumentReadyForTraversal();
 
-  const selection = figma.currentPage.selection;
+  let root: SceneNode | null = sourceRoot ?? null;
+  if (!root) {
+    const selection = figma.currentPage.selection;
 
-  if (selection.length === 0) {
-    return {
-      ok: false,
-      message: 'Выберите компонент или фрейм, чтобы настроить слои для Spec.',
-    };
+    if (selection.length === 0) {
+      return {
+        ok: false,
+        message: 'Выберите компонент или фрейм, чтобы настроить слои для Spec.',
+      };
+    }
+
+    if (selection.length > 1) {
+      return {
+        ok: false,
+        message: 'Выберите один компонент или фрейм.',
+      };
+    }
+
+    root = selection[0];
   }
-
-  if (selection.length > 1) {
-    return {
-      ok: false,
-      message: 'Выберите один компонент или фрейм.',
-    };
-  }
-
-  const root = selection[0];
 
   if (!isSupportedRoot(root)) {
     return {
@@ -81,13 +88,37 @@ export async function handleGetSpecLayerOptions(
     collected.autoSelectedLayerPaths,
     validPaths
   );
+  const anatomySelectedLayerPaths = resolveManualSelectedPaths(
+    settings.anatomySelectedLayerPaths || [],
+    validPaths
+  );
+
+  let anatomyPreviewPayload: AnatomyPreviewPayload | null = null;
+  try {
+    const cached = anatomyPreviewCacheByRootId.get(root.id);
+    if (cached) {
+      anatomyPreviewPayload = cached;
+    } else {
+      const built = await buildAnatomyPreviewPayload({
+        rootNode: root,
+        decomposition: collected.decomposition,
+      });
+      anatomyPreviewCacheByRootId.set(root.id, built);
+      anatomyPreviewPayload = built;
+    }
+  } catch (error) {
+    console.warn('[Anatomy Preview] Failed to build preview payload', error);
+    anatomyPreviewPayload = null;
+  }
 
   return {
     ok: true,
     rootId: root.id,
     rootName: collected.rootName,
     options: collected.options,
-    selectedLayerPaths,
+    specSelectedLayerPaths: selectedLayerPaths,
+    anatomySelectedLayerPaths,
     autoSelectedLayerPaths: collected.autoSelectedLayerPaths,
+    anatomyPreviewPayload,
   };
 }

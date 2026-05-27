@@ -73,13 +73,21 @@ function getErrorMessage(error: unknown): string {
  * Atomic generation: build on a temporary unnamed page without switching the
  * user away from their current page, then move the finished wrapper back.
  */
-export async function buildSpecification(settings: PluginSettings): Promise<void> {
-  const validation = validateSelection();
-  if (!validation.ok) {
-    postToUi({ type: 'ERROR', payload: { message: validation.message } });
-    return;
+export async function buildSpecification(
+  settings: PluginSettings,
+  sourceNode?: SceneNode
+): Promise<void> {
+  let root: SceneNode;
+  if (sourceNode) {
+    root = sourceNode;
+  } else {
+    const validation = validateSelection();
+    if (!validation.ok) {
+      postToUi({ type: 'ERROR', payload: { message: validation.message } });
+      return;
+    }
+    root = validation.root;
   }
-  const root = validation.root;
 
   await ensureDocumentReadyForTraversal();
 

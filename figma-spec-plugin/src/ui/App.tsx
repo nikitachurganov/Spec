@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   DEFAULT_PLUGIN_SETTINGS,
   hasAnySpecificationBlock,
@@ -6,7 +6,9 @@ import {
   type PluginSettings,
 } from '@shared/settings';
 import type { MainToUiMessage, SpecLayerOption } from '@shared/messages';
+import type { AnatomyPreviewPayload } from '@shared/anatomyPreview';
 import { postToMain } from './postToMain';
+import { AnatomyCombinedSelector } from './components/AnatomyCombinedSelector/AnatomyCombinedSelector';
 import { SettingsPanel } from './components/SettingsPanel';
 import { SpecLayerMultiSelect } from './components/SpecLayerMultiSelect';
 import { StatusMessage } from './components/StatusMessage';
@@ -14,6 +16,8 @@ import { StatusMessage } from './components/StatusMessage';
 const NO_BLOCKS_ERROR = 'Выберите хотя бы один блок спецификации.';
 const SPEC_LAYER_EMPTY_HINT =
   'Выберите компонент или фрейм, чтобы настроить слои для Spec.';
+const ANATOMY_LAYER_EMPTY_HINT =
+  'Выберите компонент или фрейм, чтобы настроить слои для анатомии.';
 
 function isMainMessage(data: unknown): data is MainToUiMessage {
   if (!data || typeof data !== 'object') return false;
@@ -28,7 +32,63 @@ function unwrapMainPayload(raw: unknown): unknown {
   return raw;
 }
 
+type DecompositionPurpose = 'spec' | 'anatomy' | 'structure';
+
+function filterDecompositionOptionsForPurpose(
+  options: SpecLayerOption[],
+  purpose: DecompositionPurpose
+): SpecLayerOption[] {
+  const byPath = new Map(options.map((option) => [option.path, option]));
+  const includeSet = new Set<string>();
+
+  const isRelevant = (option: SpecLayerOption): boolean => {
+    if (option.isRoot) return true;
+    if (purpose === 'structure') return true;
+    if (purpose === 'anatomy') return true;
+    return option.isSelectable && !option.isText;
+  };
+
+  for (const option of options) {
+    if (!isRelevant(option)) continue;
+    includeSet.add(option.path);
+    let parentPath = option.parentPath;
+    while (parentPath !== undefined) {
+      includeSet.add(parentPath);
+      const parent = byPath.get(parentPath);
+      if (!parent) break;
+      parentPath = parent.parentPath;
+    }
+  }
+
+  return options
+    .filter((option) => includeSet.has(option.path))
+    .map((option) => ({
+      ...option,
+      isSelectable:
+        purpose === 'structure'
+          ? false
+          : purpose === 'anatomy'
+          ? option.isRoot ||
+            option.isText ||
+            option.isSelectable ||
+            option.kind === 'slot' ||
+            option.kind === 'icon' ||
+            option.kind === 'badge' ||
+            option.kind === 'divider' ||
+            option.kind === 'action'
+          : option.isSelectable && !option.isText,
+    }));
+}
+
 export function App() {
+  const MIN_UI_WIDTH = 360;
+  const MIN_UI_HEIGHT = 520;
+  const MAX_UI_WIDTH = 900;
+  const MAX_UI_HEIGHT = 1000;
+
+  const clamp = (value: number, min: number, max: number) =>
+    Math.min(max, Math.max(min, value));
+
   const [settings, setSettings] = useState<PluginSettings>(DEFAULT_PLUGIN_SETTINGS);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
@@ -37,8 +97,16 @@ export function App() {
   const [specLayerOptions, setSpecLayerOptions] = useState<SpecLayerOption[]>([]);
   const [specLayerOptionsLoading, setSpecLayerOptionsLoading] = useState(false);
   const [specLayerOptionsError, setSpecLayerOptionsError] = useState<string | null>(null);
-  const [autoSelectedLayerPaths, setAutoSelectedLayerPaths] = useState<string[]>([]);
   const [specLayerRootId, setSpecLayerRootId] = useState<string | null>(null);
+  const [anatomyPreviewPayload, setAnatomyPreviewPayload] =
+    useState<AnatomyPreviewPayload | null>(null);
+  const [activeDecompositionTab, setActiveDecompositionTab] = useState<DecompositionPurpose>('spec');
+  const [uiSize, setUiSize] = useState(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }));
+  const resizeRafRef = useRef<number | null>(null);
+  const resizePendingRef = useRef<{ width: number; height: number } | null>(null);
 
   const requestSpecLayerOptions = useCallback(() => {
     setSpecLayerOptionsLoading(true);
@@ -70,10 +138,11 @@ export function App() {
         setSpecLayerOptionsError(null);
         setSpecLayerRootId(data.payload.rootId);
         setSpecLayerOptions(data.payload.options);
-        setAutoSelectedLayerPaths(data.payload.autoSelectedLayerPaths);
+        setAnatomyPreviewPayload(data.payload.anatomyPreviewPayload);
         setSettings((prev) => ({
           ...prev,
-          specSelectedLayerPaths: data.payload.selectedLayerPaths,
+          specSelectedLayerPaths: data.payload.specSelectedLayerPaths,
+          anatomySelectedLayerPaths: data.payload.anatomySelectedLayerPaths,
         }));
         return;
       }
@@ -82,7 +151,7 @@ export function App() {
         setSpecLayerOptionsLoading(false);
         setSpecLayerRootId(null);
         setSpecLayerOptions([]);
-        setAutoSelectedLayerPaths([]);
+        setAnatomyPreviewPayload(null);
         setSpecLayerOptionsError(data.payload.message || SPEC_LAYER_EMPTY_HINT);
         return;
       }
@@ -109,9 +178,75 @@ export function App() {
     return () => window.removeEventListener('message', onWindowMessage);
   }, []);
 
+  useEffect(() => {
+    function syncSizeFromWindow() {
+      setUiSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    }
+    window.addEventListener('resize', syncSizeFromWindow);
+    return () => window.removeEventListener('resize', syncSizeFromWindow);
+  }, []);
+
+  const queueResizePlugin = useCallback((width: number, height: number) => {
+    resizePendingRef.current = { width, height };
+    if (resizeRafRef.current != null) return;
+    resizeRafRef.current = window.requestAnimationFrame(() => {
+      const next = resizePendingRef.current;
+      resizePendingRef.current = null;
+      resizeRafRef.current = null;
+      if (!next) return;
+      postToMain({
+        type: 'RESIZE_PLUGIN',
+        payload: {
+          width: next.width,
+          height: next.height,
+        },
+      });
+    });
+  }, []);
+
+  const handleResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      const start = {
+        x: event.clientX,
+        y: event.clientY,
+        width: uiSize.width,
+        height: uiSize.height,
+      };
+
+      function onMove(moveEvent: PointerEvent) {
+        const width = clamp(
+          Math.round(start.width + (moveEvent.clientX - start.x)),
+          MIN_UI_WIDTH,
+          MAX_UI_WIDTH
+        );
+        const height = clamp(
+          Math.round(start.height + (moveEvent.clientY - start.y)),
+          MIN_UI_HEIGHT,
+          MAX_UI_HEIGHT
+        );
+        setUiSize({ width, height });
+        queueResizePlugin(width, height);
+      }
+
+      function onUp() {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      }
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    },
+    [uiSize.width, uiSize.height, queueResizePlugin]
+  );
+
   const handleSpecLayerSelectionChange = useCallback((selectedLayerPaths: string[]) => {
     setSettings((prev) => ({
       ...prev,
+      spec: true,
       specSelectedLayerPaths: selectedLayerPaths,
     }));
     postToMain({
@@ -121,12 +256,8 @@ export function App() {
   }, []);
 
   const handleResetSpecLayersToAuto = useCallback(() => {
-    const paths =
-      autoSelectedLayerPaths.length > 0
-        ? autoSelectedLayerPaths
-        : specLayerOptions.filter((o) => o.isAutoSelected && o.isSelectable).map((o) => o.path);
-    handleSpecLayerSelectionChange(paths);
-  }, [autoSelectedLayerPaths, specLayerOptions, handleSpecLayerSelectionChange]);
+    handleSpecLayerSelectionChange([]);
+  }, [handleSpecLayerSelectionChange]);
 
   const handleGenerate = useCallback(() => {
     if (busy) return;
@@ -145,6 +276,35 @@ export function App() {
       payload: { settings: withHiddenSpecificationPreferences(settings) },
     });
   }, [settings, busy]);
+
+  const handleAnatomyLayerSelectionChange = useCallback((selectedLayerPaths: string[]) => {
+    setSettings((prev) => ({
+      ...prev,
+      componentAnatomy: true,
+      anatomySelectedLayerPaths: selectedLayerPaths,
+    }));
+    postToMain({
+      type: 'SAVE_ANATOMY_SELECTED_LAYERS',
+      payload: { selectedLayerPaths },
+    });
+  }, []);
+
+  const handleResetAnatomyLayersToAuto = useCallback(() => {
+    handleAnatomyLayerSelectionChange([]);
+  }, [handleAnatomyLayerSelectionChange]);
+
+  const specOptions = useMemo(
+    () => filterDecompositionOptionsForPurpose(specLayerOptions, 'spec'),
+    [specLayerOptions]
+  );
+  const anatomyOptions = useMemo(
+    () => filterDecompositionOptionsForPurpose(specLayerOptions, 'anatomy'),
+    [specLayerOptions]
+  );
+  const structureOptions = useMemo(
+    () => filterDecompositionOptionsForPurpose(specLayerOptions, 'structure'),
+    [specLayerOptions]
+  );
 
   return (
     <div className="app">
@@ -191,34 +351,99 @@ export function App() {
           <section className="decomposition-panel">
             <div className="plugin-block-header">
               <h2 className="plugin-block-title">Декомпозиция</h2>
-              <button
-                type="button"
-                className="plugin-header-icon-button"
-                aria-label="Сбросить к авто"
-                title="Сбросить к авто"
-                onClick={handleResetSpecLayersToAuto}
-                disabled={specLayerOptionsLoading || specLayerOptions.length === 0}
-              >
-                ↻
-              </button>
             </div>
             <div className="plugin-panel-body">
-              <SpecLayerMultiSelect
-                options={specLayerOptions}
-                selectedPaths={settings.specSelectedLayerPaths}
-                isLoading={specLayerOptionsLoading}
-                error={specLayerOptionsError}
-                emptyHint={SPEC_LAYER_EMPTY_HINT}
-                onChange={handleSpecLayerSelectionChange}
-                rootId={specLayerRootId}
-                showHeader={false}
-                showRefresh={false}
-                showResetButton={false}
-              />
+              <div className="decomposition-tabs" role="tablist" aria-label="Decomposition tabs">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeDecompositionTab === 'spec'}
+                  className={`decomposition-tab ${activeDecompositionTab === 'spec' ? 'is-active' : ''}`}
+                  onClick={() => setActiveDecompositionTab('spec')}
+                >
+                  Spec
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeDecompositionTab === 'anatomy'}
+                  className={`decomposition-tab ${activeDecompositionTab === 'anatomy' ? 'is-active' : ''}`}
+                  onClick={() => setActiveDecompositionTab('anatomy')}
+                >
+                  Анатомия
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeDecompositionTab === 'structure'}
+                  className={`decomposition-tab ${activeDecompositionTab === 'structure' ? 'is-active' : ''}`}
+                  onClick={() => setActiveDecompositionTab('structure')}
+                >
+                  Структура
+                </button>
+              </div>
+              <div className="decomposition-content">
+                {activeDecompositionTab === 'spec' ? (
+                  <div className="decomposition-content-scroll">
+                    <SpecLayerMultiSelect
+                      options={specOptions}
+                      selectedPaths={settings.specSelectedLayerPaths}
+                      isLoading={specLayerOptionsLoading}
+                      error={specLayerOptionsError}
+                      emptyHint={SPEC_LAYER_EMPTY_HINT}
+                      onChange={handleSpecLayerSelectionChange}
+                      onResetToAuto={handleResetSpecLayersToAuto}
+                      rootId={specLayerRootId}
+                      showHeader
+                      showRefresh={false}
+                      showResetButton
+                      title="Декомпозиция Spec"
+                    />
+                  </div>
+                ) : null}
+                {activeDecompositionTab === 'anatomy' ? (
+                  <AnatomyCombinedSelector
+                    options={anatomyOptions}
+                    preview={anatomyPreviewPayload}
+                    selectedPaths={settings.anatomySelectedLayerPaths}
+                    isLoading={specLayerOptionsLoading}
+                    error={specLayerOptionsError}
+                    emptyHint={ANATOMY_LAYER_EMPTY_HINT}
+                    rootId={specLayerRootId}
+                    onSelectedPathsChange={handleAnatomyLayerSelectionChange}
+                    onResetToAuto={handleResetAnatomyLayersToAuto}
+                  />
+                ) : null}
+                {activeDecompositionTab === 'structure' ? (
+                  <div className="decomposition-content-scroll">
+                    <SpecLayerMultiSelect
+                      options={structureOptions}
+                      selectedPaths={[]}
+                      isLoading={specLayerOptionsLoading}
+                      error={specLayerOptionsError}
+                      emptyHint={SPEC_LAYER_EMPTY_HINT}
+                      onChange={() => undefined}
+                      rootId={specLayerRootId}
+                      showHeader
+                      showRefresh={false}
+                      showResetButton={false}
+                      checkable={false}
+                      cascadeSelection={false}
+                      title="Структура компонента"
+                    />
+                  </div>
+                ) : null}
+              </div>
             </div>
           </section>
         </section>
       </main>
+      <button
+        type="button"
+        className="app-resize-handle"
+        aria-label="Resize plugin window"
+        onPointerDown={handleResizePointerDown}
+      />
     </div>
   );
 }

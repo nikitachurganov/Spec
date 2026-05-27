@@ -12,6 +12,7 @@ import { AnatomyGenerator } from '../anatomy/anatomyGenerator';
 import { createPaddingVisualization } from '../builders/buildContainerPreviewCard';
 import { createSpecContainersEmptyState } from '../builders/buildSpecSection';
 import { parseContainers } from '../spec/parseContainers';
+import { buildDecompositionTree } from '../decomposition/buildDecompositionTree';
 import { getSpecBuildStyleContext, attachNodeToActiveStagingPage } from '../tokens/specStyleContext';
 var FONT_PT_SANS_REGULAR = { family: 'PT Sans', style: 'Regular' };
 var FONT_PT_SANS_BOLD = { family: 'PT Sans', style: 'Bold' };
@@ -365,6 +366,10 @@ function normalizeSectionSettings(settings) {
     specSelectedLayerPaths:
       settings && Array.isArray(settings.specSelectedLayerPaths)
         ? settings.specSelectedLayerPaths
+        : [],
+    anatomySelectedLayerPaths:
+      settings && Array.isArray(settings.anatomySelectedLayerPaths)
+        ? settings.anatomySelectedLayerPaths
         : [],
   };
 }
@@ -3622,6 +3627,7 @@ async function buildSpecObject(root, options) {
   var anatomy = parseAnatomy(root);
   var containers = await parseContainers(root, {
     selectedLayerPaths: options.selectedLayerPaths || [],
+    decomposition: options.decomposition || undefined,
   });
   var warnings = [];
 
@@ -4022,8 +4028,17 @@ async function buildSpecification(sections, root) {
 
   await loadSpecFonts();
   var designTokens = await loadSpecDesignTokens();
+  var decomposition = await buildDecompositionTree(root);
+  var validPathsSet = new Set(Array.from(decomposition.nodeByPath.keys()).filter(Boolean));
+  var filteredSpecSelectedPaths = (sections.specSelectedLayerPaths || []).filter(function (pathKey) {
+    return validPathsSet.has(pathKey);
+  });
+  var filteredAnatomySelectedPaths = (sections.anatomySelectedLayerPaths || []).filter(function (pathKey) {
+    return validPathsSet.has(pathKey);
+  });
   var spec = await buildSpecObject(root, {
-    selectedLayerPaths: sections.specSelectedLayerPaths || [],
+    selectedLayerPaths: filteredSpecSelectedPaths,
+    decomposition: decomposition,
   });
 
   var specificationFrame = createPluginFrameRaw();
@@ -4073,6 +4088,7 @@ async function buildSpecification(sections, root) {
 
     anatomyOptions.componentPropertyMetadata = propertyMetadata;
     anatomyOptions.useComponentPropertyNames = !!sections.useComponentPropertyNames;
+    anatomyOptions.selectedLayerPaths = filteredAnatomySelectedPaths;
 
     var anatomyFrame = await AnatomyGenerator.createAnatomyFrame({
       sourceNode: root,

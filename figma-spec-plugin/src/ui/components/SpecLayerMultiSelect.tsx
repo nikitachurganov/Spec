@@ -21,6 +21,8 @@ export type SpecLayerMultiSelectProps = {
   showRefresh?: boolean;
   showResetButton?: boolean;
   rootId?: string | null;
+  checkable?: boolean;
+  cascadeSelection?: boolean;
 };
 
 function buildTree(options: SpecLayerOption[]): SpecLayerTreeNode[] {
@@ -49,7 +51,7 @@ function toTreeNodeData(items: SpecLayerTreeNode[]): TreeNodeData[] {
   return items.map((item) => ({
     key: item.path,
     title: item.name,
-    type: item.isComponentBoundary ? ('child' as const) : undefined,
+    type: item.isRoot ? ('master' as const) : item.isComponentBoundary ? ('child' as const) : undefined,
     disabled: !item.isSelectable,
     children: toTreeNodeData(item.children),
   }));
@@ -69,6 +71,8 @@ export function SpecLayerMultiSelect({
   showRefresh = true,
   showResetButton = true,
   rootId,
+  checkable = true,
+  cascadeSelection = false,
 }: SpecLayerMultiSelectProps) {
   const tree = useMemo(() => buildTree(options), [options]);
   const treeData = useMemo(() => toTreeNodeData(tree), [tree]);
@@ -125,7 +129,8 @@ export function SpecLayerMultiSelect({
           data={treeData}
           checkedKeys={selectedPaths}
           expandedKeys={expandedKeys}
-          checkable
+          checkable={checkable}
+          cascadeSelection={cascadeSelection}
           selectable={false}
           onCheck={(keys) => onChange(keys)}
           onExpand={(keys) =>

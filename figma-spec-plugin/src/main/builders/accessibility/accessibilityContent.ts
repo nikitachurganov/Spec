@@ -1,20 +1,53 @@
-export type KeyboardNavigationRow = { key: string; action: string };
+export type KeyboardKeyCombination = string[];
 
-export const KEYBOARD_ROWS: ReadonlyArray<KeyboardNavigationRow> = [
+export type KeyboardKeyAction = {
+  keys: KeyboardKeyCombination[];
+  action: string;
+};
+
+const DEFAULT_KEYBOARD_ROWS_RU: ReadonlyArray<KeyboardKeyAction> = [
   {
-    key: 'Tab',
-    action:
-      'Перемещает фокус. Фокусное состояние сообщается сверху-вниз, слево-направо',
+    keys: [['Tab']],
+    action: 'Перемещает фокус к следующему интерактивному элементу.',
   },
   {
-    key: 'Shift + Tab',
+    keys: [['Shift', 'Tab']],
     action: 'Перемещает фокус к предыдущему интерактивному элементу.',
   },
-  { key: 'Enter / Space', action: 'Активирует элемент в фокусе.' },
+  {
+    keys: [['Enter']],
+    action: 'Активирует элемент в фокусе или подтверждает выбранное действие.',
+  },
 ];
+
+const COMPONENT_KEYBOARD_ROWS_RU: ReadonlyArray<KeyboardKeyAction> = [
+  {
+    keys: [['Space']],
+    action: 'Активирует элемент в фокусе.',
+  },
+];
+
+function keyboardRowKey(row: KeyboardKeyAction): string {
+  const keysPart = row.keys.map((combo) => combo.join('+')).join(',');
+  return `${keysPart}|${row.action.trim()}`;
+}
+
+export function getKeyboardRows(): KeyboardKeyAction[] {
+  const merged = [...DEFAULT_KEYBOARD_ROWS_RU, ...COMPONENT_KEYBOARD_ROWS_RU];
+  const seen = new Set<string>();
+  const out: KeyboardKeyAction[] = [];
+  for (const row of merged) {
+    const key = keyboardRowKey(row);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
 
 export const SCREEN_READER_ITEMS: readonly string[] = [
   'Название элемента должно быть понятно без визуального контекста.',
   'Состояние элемента должно озвучиваться при изменении.',
-  'Порядок чтения должен соответствовать визуальной структуре компонента.',
+  'Интерактивные элементы должны иметь доступное имя.',
+  'Ошибки и системные сообщения должны передаваться через aria-live, если они появляются динамически.',
 ];

@@ -73,8 +73,16 @@ export function toggleCheck(
   data: TreeNodeData[],
   key: string,
   checked: boolean,
-  currentCheckedKeys: string[]
+  currentCheckedKeys: string[],
+  cascadeSelection = true
 ): string[] {
+  if (!cascadeSelection) {
+    const next = new Set(currentCheckedKeys);
+    if (checked) next.add(key);
+    else next.delete(key);
+    return Array.from(next);
+  }
+
   const keyMap = buildKeyMap(data);
   const parentMap = buildParentMap(data);
   const node = keyMap.get(key);
@@ -116,8 +124,16 @@ export function toggleCheck(
  */
 export function calculateCheckedState(
   data: TreeNodeData[],
-  checkedKeys: string[]
+  checkedKeys: string[],
+  cascadeSelection = true
 ): CheckedState {
+  if (!cascadeSelection) {
+    return {
+      checkedKeys: Array.from(new Set(checkedKeys)),
+      halfCheckedKeys: [],
+    };
+  }
+
   const inputSet = new Set(checkedKeys);
   const half = new Set<string>();
 

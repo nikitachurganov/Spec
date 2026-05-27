@@ -1,5 +1,6 @@
 /// <reference types="@figma/plugin-typings" />
-import { createPluginFrame, createPluginRectangle, createPluginVector } from '../figma/pluginSceneNodes';
+
+import { createPluginFrame, createPluginRectangle } from '../figma/pluginSceneNodes';
 
 import type {
   AnatomyBounds,
@@ -7,592 +8,964 @@ import type {
   AnatomyItem,
   AnatomyPointerPlacement,
   AnatomyPointerSide,
+  AnatomyPointerTarget,
   AnatomyRect,
+  Point,
+  PointerSide,
+  Rect,
+  StraightConnectorLine,
+  ConnectorObstacle,
 } from './anatomyTypes';
-import {
-  anatomyItemsToLayoutItems,
-  computeAnatomyLayout,
-  renderAnatomyPointerPlacements,
-} from './anatomyLayoutEngine';
-import type { AnatomyPointerLayoutResult } from './anatomyPointerLayout';
-import {
-  ANATOMY_COLORS,
-  ANATOMY_LAYOUT,
-  ANATOMY_POINTER_LABEL_GAP,
-  ANATOMY_POINTER_RIGHT_OFFSET,
-} from './anatomyStyles';
-import { layoutLShapedAnatomyPointers } from './anatomyLShapedLayout';
+import { ANATOMY_COLORS } from './anatomyStyles';
 
-export function isVerticalPointerSide(side: AnatomyPointerSide): boolean {
-  return side === 'top' || side === 'bottom';
+const MARKER_OUTSIDE_GAP = 24;
+const MARKER_AXIS_OFFSETS = [0, -28, 28, -56, 56, -84, 84] as const;
+
+const MARKER_OVERLAP_PENALTY = 10000;
+const LINE_THROUGH_MARKER_PENALTY = 8000;
+const CONNECTOR_OVERLAP_PENALTY = 1000;
+const CONNECTOR_CROSSING_PENALTY = 400;
+const LINE_LENGTH_WEIGHT = 0.1;
+const SEGMENT_COUNT_WEIGHT = 20;
+const TARGET_OBSTACLE_PENALTY = 8000;
+const ACCENT_OBSTACLE_PENALTY = 10000;
+const CLOSE_TO_OBSTACLE_PENALTY = 200;
+
+const SIDE_ORDER: PointerSide[] = ['left', 'right', 'top', 'bottom'];
+const anatomyGeometryWarnings = new Set<string>();
+
+function warnOnce(key: string, message: string): void {
+  if (anatomyGeometryWarnings.has(key)) return;
+  anatomyGeometryWarnings.add(key);
+  console.warn(message);
 }
 
-export function isHorizontalPointerSide(side: AnatomyPointerSide): boolean {
-  return side === 'left' || side === 'right';
+function roundPoint(point: Point): Point {
+  return { x: Math.round(point.x), y: Math.round(point.y) };
 }
 
-export function getPointerAlignmentLines(
-  componentBounds: AnatomyRect,
-  markerSize: number,
-  markerOffset: number
-): { topY: number; bottomY: number; leftX: number; rightX: number } {
+function clampMin(value: number, min: number): number {
+  return value < min ? min : value;
+}
+
+function isFinitePoint(point: Point): boolean {
+  return Number.isFinite(point.x) && Number.isFinite(point.y);
+}
+
+function getMarkerBounds(center: Point, markerDiameter: number): Rect {
+  const r = markerDiameter / 2;
   return {
-    topY: componentBounds.y - markerOffset - markerSize,
-    bottomY: componentBounds.y + componentBounds.height + markerOffset,
-    leftX: componentBounds.x - markerOffset - markerSize,
-    rightX: componentBounds.x + componentBounds.width + markerOffset,
+    x: Math.round(center.x - r),
+    y: Math.round(center.y - r),
+    width: markerDiameter,
+    height: markerDiameter,
   };
 }
 
-export function createConnectorSegment(params: {
-  name: string;
-  orientation: 'horizontal' | 'vertical';
-  length: number;
-  color: RGB;
-}): RectangleNode {
-  return createAnatomyConnector(params);
+function getTargetCenter(targetBounds: Rect): Point {
+  return {
+    x: targetBounds.x + targetBounds.width / 2,
+    y: targetBounds.y + targetBounds.height / 2,
+  };
 }
 
-export function createAnatomyConnector(params: {
-  name: string;
-  orientation: 'horizontal' | 'vertical';
-  length: number;
-  color: RGB;
-}): RectangleNode {
-  const connector = createPluginRectangle();
-  connector.name = params.name;
-  const safeLength = Math.max(1, Math.round(params.length));
-
-  if (params.orientation === 'vertical') {
-    connector.resize(1, safeLength);
-  } else {
-    connector.resize(safeLength, 1);
-  }
-
-  connector.fills = [{ type: 'SOLID', color: params.color }];
-  connector.strokes = [];
-  connector.cornerRadius = 0;
-  connector.opacity = 1;
-  connector.visible = true;
-  return connector;
+function getTargetEdgePoint(side: PointerSide, targetBounds: Rect): Point {
+  const c = getTargetCenter(targetBounds);
+  if (side === 'left') return roundPoint({ x: targetBounds.x, y: c.y });
+  if (side === 'right') return roundPoint({ x: targetBounds.x + targetBounds.width, y: c.y });
+  if (side === 'top') return roundPoint({ x: c.x, y: targetBounds.y });
+  return roundPoint({ x: c.x, y: targetBounds.y + targetBounds.height });
 }
 
-function createDiagonalConnector(name: string, color: RGB, from: { x: number; y: number }, to: { x: number; y: number }): VectorNode {
-  const vector = createPluginVector();
-  vector.name = name;
-  vector.vectorPaths = [
-    {
-      windingRule: 'NONZERO',
-      data: `M ${from.x} ${from.y} L ${to.x} ${to.y}`,
-    },
-  ];
-  vector.strokes = [{ type: 'SOLID', color }];
-  vector.strokeWeight = 1;
-  vector.strokeCap = 'ROUND';
-  vector.fills = [];
-  return vector;
-}
-
-function buildRightSideConnectorSegmentsFromLayout(
-  layout: AnatomyPointerLayoutResult
-): AnatomyConnectorSegment[] {
-  const { startPoint, bendPoint, endPoint } = layout;
-  const segments: AnatomyConnectorSegment[] = [];
-
-  if (!bendPoint) {
-    if (Math.abs(startPoint.y - endPoint.y) < 1) {
-      segments.push({
-        orientation: 'horizontal',
-        x: Math.min(startPoint.x, endPoint.x),
-        y: startPoint.y - 0.5,
-        length: Math.max(1, Math.abs(endPoint.x - startPoint.x)),
-        nameSuffix: 'horizontal',
-      });
-    } else {
-      segments.push({
-        orientation: 'vertical',
-        x: startPoint.x - 0.5,
-        y: Math.min(startPoint.y, endPoint.y),
-        length: Math.max(1, Math.abs(endPoint.y - startPoint.y)),
-        nameSuffix: 'vertical',
-      });
-    }
-    return segments;
+function getMarkerEdgePoint(
+  side: PointerSide,
+  markerCenter: Point,
+  markerRadius: number
+): Point {
+  if (side === 'left') {
+    return roundPoint({ x: markerCenter.x + markerRadius, y: markerCenter.y });
   }
-
-  const firstIsVertical = Math.abs(startPoint.x - bendPoint.x) < 1;
-  const secondIsHorizontal = Math.abs(bendPoint.y - endPoint.y) < 1;
-
-  if (firstIsVertical) {
-    segments.push({
-      orientation: 'vertical',
-      x: startPoint.x - 0.5,
-      y: Math.min(startPoint.y, bendPoint.y),
-      length: Math.max(1, Math.abs(bendPoint.y - startPoint.y)),
-      nameSuffix: 'vertical',
-    });
-  } else {
-    segments.push({
-      orientation: 'horizontal',
-      x: Math.min(startPoint.x, bendPoint.x),
-      y: startPoint.y - 0.5,
-      length: Math.max(1, Math.abs(bendPoint.x - startPoint.x)),
-      nameSuffix: 'horizontal',
-    });
+  if (side === 'right') {
+    return roundPoint({ x: markerCenter.x - markerRadius, y: markerCenter.y });
   }
-
-  if (secondIsHorizontal) {
-    segments.push({
-      orientation: 'horizontal',
-      x: Math.min(bendPoint.x, endPoint.x),
-      y: bendPoint.y - 0.5,
-      length: Math.max(1, Math.abs(endPoint.x - bendPoint.x)),
-      nameSuffix: 'horizontal',
-    });
-  } else {
-    segments.push({
-      orientation: 'vertical',
-      x: bendPoint.x - 0.5,
-      y: Math.min(bendPoint.y, endPoint.y),
-      length: Math.max(1, Math.abs(endPoint.y - bendPoint.y)),
-      nameSuffix: 'vertical',
-    });
-  }
-
-  return segments.filter((segment) => segment.length > 0);
-}
-
-/** @deprecated Legacy multi-side connector builder; right-side layout uses {@link buildRightSideConnectorSegmentsFromLayout}. */
-function buildConnectorSegments(
-  side: AnatomyPointerSide,
-  markerCenterX: number,
-  markerCenterY: number,
-  markerSize: number,
-  itemBounds: AnatomyBounds
-): AnatomyConnectorSegment[] {
-  const targetCenterX = itemBounds.centerX;
-  const targetCenterY = itemBounds.centerY;
-  const half = markerSize / 2;
-  const segments: AnatomyConnectorSegment[] = [];
-
   if (side === 'top') {
-    const markerBottom = markerCenterY + half;
-    const targetY = itemBounds.y;
-    if (Math.abs(markerCenterX - targetCenterX) < 1) {
-      const length = Math.max(1, targetY - markerBottom);
-      if (length > 0) {
-        segments.push({
-          orientation: 'vertical',
-          x: markerCenterX - 0.5,
-          y: markerBottom,
-          length,
-          nameSuffix: 'vertical',
-        });
-      }
-    } else {
-      const elbowY = targetY;
-      segments.push({
-        orientation: 'vertical',
-        x: markerCenterX - 0.5,
-        y: markerBottom,
-        length: Math.max(1, elbowY - markerBottom),
-        nameSuffix: 'vertical',
-      });
-      segments.push({
-        orientation: 'horizontal',
-        x: Math.min(markerCenterX, targetCenterX),
-        y: elbowY - 0.5,
-        length: Math.max(1, Math.abs(targetCenterX - markerCenterX)),
-        nameSuffix: 'horizontal',
-      });
-    }
-  } else if (side === 'bottom') {
-    const markerTop = markerCenterY - half;
-    const targetY = itemBounds.y + itemBounds.height;
-    if (Math.abs(markerCenterX - targetCenterX) < 1) {
-      const length = Math.max(1, markerTop - targetY);
-      if (length > 0) {
-        segments.push({
-          orientation: 'vertical',
-          x: markerCenterX - 0.5,
-          y: targetY,
-          length,
-          nameSuffix: 'vertical',
-        });
-      }
-    } else {
-      const elbowY = targetY;
-      segments.push({
-        orientation: 'vertical',
-        x: markerCenterX - 0.5,
-        y: targetY,
-        length: Math.max(1, markerTop - elbowY),
-        nameSuffix: 'vertical',
-      });
-      segments.push({
-        orientation: 'horizontal',
-        x: Math.min(markerCenterX, targetCenterX),
-        y: elbowY - 0.5,
-        length: Math.max(1, Math.abs(targetCenterX - markerCenterX)),
-        nameSuffix: 'horizontal',
-      });
-    }
-  } else if (side === 'left') {
-    const markerRight = markerCenterX + half;
-    const targetX = itemBounds.x;
-    if (Math.abs(markerCenterY - targetCenterY) < 1) {
-      const length = Math.max(1, targetX - markerRight);
-      if (length > 0) {
-        segments.push({
-          orientation: 'horizontal',
-          x: markerRight,
-          y: markerCenterY - 0.5,
-          length,
-          nameSuffix: 'horizontal',
-        });
-      }
-    } else {
-      const elbowX = targetX;
-      segments.push({
-        orientation: 'horizontal',
-        x: markerRight,
-        y: markerCenterY - 0.5,
-        length: Math.max(1, elbowX - markerRight),
-        nameSuffix: 'horizontal',
-      });
-      segments.push({
-        orientation: 'vertical',
-        x: elbowX - 0.5,
-        y: Math.min(markerCenterY, targetCenterY),
-        length: Math.max(1, Math.abs(targetCenterY - markerCenterY)),
-        nameSuffix: 'vertical',
-      });
-    }
-  } else if (side === 'right') {
-    const markerLeft = markerCenterX - half;
-    const targetX = itemBounds.x + itemBounds.width;
-    if (Math.abs(markerCenterY - targetCenterY) < 1) {
-      const length = Math.max(1, markerLeft - targetX);
-      if (length > 0) {
-        segments.push({
-          orientation: 'horizontal',
-          x: targetX,
-          y: markerCenterY - 0.5,
-          length,
-          nameSuffix: 'horizontal',
-        });
-      }
-    } else {
-      const elbowX = targetX;
-      segments.push({
-        orientation: 'horizontal',
-        x: targetX,
-        y: markerCenterY - 0.5,
-        length: Math.max(1, markerLeft - elbowX),
-        nameSuffix: 'horizontal',
-      });
-      segments.push({
-        orientation: 'vertical',
-        x: elbowX - 0.5,
-        y: Math.min(markerCenterY, targetCenterY),
-        length: Math.max(1, Math.abs(targetCenterY - markerCenterY)),
-        nameSuffix: 'vertical',
-      });
-    }
+    return roundPoint({ x: markerCenter.x, y: markerCenter.y + markerRadius });
   }
-
-  return segments.filter((segment) => segment.length > 0);
+  return roundPoint({ x: markerCenter.x, y: markerCenter.y - markerRadius });
 }
 
-function refreshPlacementSegments(placement: AnatomyPointerPlacement): void {
-  const markerCenterX = placement.markerX + placement.markerSize / 2;
-  const markerCenterY = placement.markerY + placement.markerSize / 2;
-  placement.segments = buildConnectorSegments(
-    placement.side,
-    markerCenterX,
-    markerCenterY,
-    placement.markerSize,
-    placement.itemBounds
+function lineLength(line: StraightConnectorLine): number {
+  return Math.hypot(line.x2 - line.x1, line.y2 - line.y1);
+}
+
+function isHorizontal(line: StraightConnectorLine): boolean {
+  return line.y1 === line.y2 && line.x1 !== line.x2;
+}
+
+function isVertical(line: StraightConnectorLine): boolean {
+  return line.x1 === line.x2 && line.y1 !== line.y2;
+}
+
+function isOrthogonalLine(line: StraightConnectorLine): boolean {
+  return isHorizontal(line) || isVertical(line);
+}
+
+function isMarkerOutsideArtwork(markerBounds: Rect, artworkBounds: Rect): boolean {
+  return !rectsIntersect(markerBounds, artworkBounds);
+}
+
+function inflateRect(rect: Rect, padding: number): Rect {
+  return {
+    x: rect.x - padding,
+    y: rect.y - padding,
+    width: rect.width + padding * 2,
+    height: rect.height + padding * 2,
+  };
+}
+
+function pushOrthogonalSegment(
+  segments: StraightConnectorLine[],
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number
+): void {
+  const line: StraightConnectorLine = {
+    x1: Math.round(x1),
+    y1: Math.round(y1),
+    x2: Math.round(x2),
+    y2: Math.round(y2),
+  };
+  if (!isOrthogonalLine(line)) return;
+  if (lineLength(line) <= 0) return;
+  segments.push(line);
+}
+
+function buildConnectorLines(params: {
+  side: PointerSide;
+  markerCenter: Point;
+  markerRadius: number;
+  targetPoint: Point;
+  artworkBounds: Rect;
+  routeMode: 'primary' | 'secondary' | 'gutter';
+}): StraightConnectorLine[] {
+  const { side, markerCenter, markerRadius, targetPoint, artworkBounds, routeMode } = params;
+  const start = getMarkerEdgePoint(side, markerCenter, markerRadius);
+  const lines: StraightConnectorLine[] = [];
+
+  if (routeMode === 'gutter') {
+    if (side === 'top' || side === 'bottom') {
+      const gutterY =
+        side === 'top'
+          ? artworkBounds.y - MARKER_OUTSIDE_GAP - markerRadius - 24
+          : artworkBounds.y + artworkBounds.height + MARKER_OUTSIDE_GAP + markerRadius + 24;
+      pushOrthogonalSegment(lines, start.x, start.y, start.x, gutterY);
+      pushOrthogonalSegment(lines, start.x, gutterY, targetPoint.x, gutterY);
+      pushOrthogonalSegment(lines, targetPoint.x, gutterY, targetPoint.x, targetPoint.y);
+      return lines;
+    }
+    const gutterX =
+      side === 'left'
+        ? artworkBounds.x - MARKER_OUTSIDE_GAP - markerRadius - 24
+        : artworkBounds.x + artworkBounds.width + MARKER_OUTSIDE_GAP + markerRadius + 24;
+    pushOrthogonalSegment(lines, start.x, start.y, gutterX, start.y);
+    pushOrthogonalSegment(lines, gutterX, start.y, gutterX, targetPoint.y);
+    pushOrthogonalSegment(lines, gutterX, targetPoint.y, targetPoint.x, targetPoint.y);
+    return lines;
+  }
+
+  if (routeMode === 'secondary') {
+    if (start.y === targetPoint.y || start.x === targetPoint.x) {
+      pushOrthogonalSegment(lines, start.x, start.y, targetPoint.x, targetPoint.y);
+      return lines;
+    }
+    pushOrthogonalSegment(lines, start.x, start.y, targetPoint.x, start.y);
+    pushOrthogonalSegment(lines, targetPoint.x, start.y, targetPoint.x, targetPoint.y);
+    return lines;
+  }
+
+  if (start.y === targetPoint.y || start.x === targetPoint.x) {
+    pushOrthogonalSegment(lines, start.x, start.y, targetPoint.x, targetPoint.y);
+    return lines;
+  }
+  pushOrthogonalSegment(lines, start.x, start.y, start.x, targetPoint.y);
+  pushOrthogonalSegment(lines, start.x, targetPoint.y, targetPoint.x, targetPoint.y);
+  return lines;
+}
+
+function validatePointerPlacement(params: {
+  side: PointerSide;
+  markerCenter: Point;
+  markerBounds: Rect;
+  markerRadius: number;
+  targetPoint: Point;
+  lines: StraightConnectorLine[];
+  artworkBounds: Rect;
+}): boolean {
+  const { side, markerCenter, markerBounds, markerRadius, targetPoint, lines, artworkBounds } = params;
+  if (!isFinitePoint(markerCenter) || !isFinitePoint(targetPoint)) return false;
+  if (!lines.length) return false;
+
+  const markerEdge = getMarkerEdgePoint(side, markerCenter, markerRadius);
+  const first = lines[0];
+  const last = lines[lines.length - 1];
+  if (!first || !last) return false;
+  if (first.x1 !== markerEdge.x || first.y1 !== markerEdge.y) return false;
+  if (last.x2 !== targetPoint.x || last.y2 !== targetPoint.y) return false;
+
+  for (const line of lines) {
+    if (!Number.isFinite(line.x1) || !Number.isFinite(line.y1) || !Number.isFinite(line.x2) || !Number.isFinite(line.y2)) {
+      return false;
+    }
+    if (!isOrthogonalLine(line)) return false;
+    if (lineLength(line) <= 0) return false;
+  }
+
+  for (let i = 1; i < lines.length; i++) {
+    const prev = lines[i - 1];
+    const curr = lines[i];
+    if (prev.x2 !== curr.x1 || prev.y2 !== curr.y1) return false;
+  }
+
+  const touchesMarker =
+    (side === 'left' && first.x1 === markerBounds.x + markerBounds.width) ||
+    (side === 'right' && first.x1 === markerBounds.x) ||
+    (side === 'top' && first.y1 === markerBounds.y + markerBounds.height) ||
+    (side === 'bottom' && first.y1 === markerBounds.y);
+  if (!touchesMarker) return false;
+  return isMarkerOutsideArtwork(markerBounds, artworkBounds);
+}
+
+function lineRect(line: StraightConnectorLine): Rect {
+  if (isHorizontal(line)) {
+    return {
+      x: Math.min(line.x1, line.x2),
+      y: line.y1,
+      width: clampMin(Math.abs(line.x2 - line.x1), 1),
+      height: 1,
+    };
+  }
+  return {
+    x: line.x1,
+    y: Math.min(line.y1, line.y2),
+    width: 1,
+    height: clampMin(Math.abs(line.y2 - line.y1), 1),
+  };
+}
+
+function rectsIntersect(a: Rect, b: Rect): boolean {
+  return !(
+    a.x + a.width <= b.x ||
+    b.x + b.width <= a.x ||
+    a.y + a.height <= b.y ||
+    b.y + b.height <= a.y
   );
 }
 
-export function createInitialPlacement(
+function rangesOverlap(a1: number, a2: number, b1: number, b2: number): boolean {
+  const minA = Math.min(a1, a2);
+  const maxA = Math.max(a1, a2);
+  const minB = Math.min(b1, b2);
+  const maxB = Math.max(b1, b2);
+  return Math.max(minA, minB) <= Math.min(maxA, maxB);
+}
+
+function linesOverlap(a: StraightConnectorLine, b: StraightConnectorLine): boolean {
+  if (isHorizontal(a) && isHorizontal(b) && a.y1 === b.y1) {
+    return rangesOverlap(a.x1, a.x2, b.x1, b.x2);
+  }
+  if (isVertical(a) && isVertical(b) && a.x1 === b.x1) {
+    return rangesOverlap(a.y1, a.y2, b.y1, b.y2);
+  }
+  return false;
+}
+
+function linesCross(a: StraightConnectorLine, b: StraightConnectorLine): boolean {
+  if (isHorizontal(a) && isVertical(b)) {
+    return rangesOverlap(a.x1, a.x2, b.x1, b.x2) && rangesOverlap(b.y1, b.y2, a.y1, a.y2);
+  }
+  if (isVertical(a) && isHorizontal(b)) {
+    return rangesOverlap(b.x1, b.x2, a.x1, a.x2) && rangesOverlap(a.y1, a.y2, b.y1, b.y2);
+  }
+  return false;
+}
+
+function sidePreferenceOrder(target: AnatomyPointerTarget, artworkBounds: Rect): PointerSide[] {
+  const c = target.targetCenter;
+  const distances: Array<{ side: PointerSide; d: number }> = [
+    { side: 'left', d: Math.abs(c.x - artworkBounds.x) },
+    { side: 'right', d: Math.abs(artworkBounds.x + artworkBounds.width - c.x) },
+    { side: 'top', d: Math.abs(c.y - artworkBounds.y) },
+    { side: 'bottom', d: Math.abs(artworkBounds.y + artworkBounds.height - c.y) },
+  ];
+  distances.sort((a, b) => a.d - b.d || SIDE_ORDER.indexOf(a.side) - SIDE_ORDER.indexOf(b.side));
+  return distances.map((entry) => entry.side);
+}
+
+function getMarkerCenterOutsideArtwork(params: {
+  side: PointerSide;
+  targetCenter: Point;
+  artworkBounds: Rect;
+  markerRadius: number;
+  outsideGap: number;
+  axisOffset: number;
+}): Point {
+  const { side, targetCenter, artworkBounds, markerRadius, outsideGap, axisOffset } = params;
+  if (side === 'top') {
+    return roundPoint({
+      x: targetCenter.x + axisOffset,
+      y: artworkBounds.y - outsideGap - markerRadius,
+    });
+  }
+  if (side === 'bottom') {
+    return roundPoint({
+      x: targetCenter.x + axisOffset,
+      y: artworkBounds.y + artworkBounds.height + outsideGap + markerRadius,
+    });
+  }
+  if (side === 'left') {
+    return roundPoint({
+      x: artworkBounds.x - outsideGap - markerRadius,
+      y: targetCenter.y + axisOffset,
+    });
+  }
+  return roundPoint({
+    x: artworkBounds.x + artworkBounds.width + outsideGap + markerRadius,
+    y: targetCenter.y + axisOffset,
+  });
+}
+
+function buildCandidate(params: {
+  itemId: string;
+  target: AnatomyPointerTarget;
+  side: PointerSide;
+  markerDiameter: number;
+  outsideGap: number;
+  axisOffset: number;
+  artworkBounds: Rect;
+  routeMode: 'primary' | 'secondary' | 'gutter';
+}): {
+  itemId: string;
+  side: PointerSide;
+  markerCenter: Point;
+  markerBounds: Rect;
+  targetPoint: Point;
+  lines: StraightConnectorLine[];
+  totalLineLength: number;
+  axisDistance: number;
+} | null {
+  const { itemId, target, side, markerDiameter, outsideGap, axisOffset, artworkBounds, routeMode } = params;
+  const markerRadius = markerDiameter / 2;
+  const targetPoint = getTargetEdgePoint(side, target.targetBounds);
+  const markerCenter = getMarkerCenterOutsideArtwork({
+    side,
+    targetCenter: target.targetCenter,
+    artworkBounds,
+    markerRadius,
+    outsideGap,
+    axisOffset,
+  });
+  const markerBounds = getMarkerBounds(markerCenter, markerDiameter);
+  const lines = buildConnectorLines({
+    side,
+    markerCenter,
+    markerRadius,
+    targetPoint,
+    artworkBounds,
+    routeMode,
+  });
+
+  if (
+    !validatePointerPlacement({
+      side,
+      markerCenter,
+      markerBounds,
+      markerRadius,
+      targetPoint,
+      lines,
+      artworkBounds,
+    })
+  ) {
+    return null;
+  }
+
+  return {
+    itemId,
+    side,
+    markerCenter,
+    markerBounds,
+    targetPoint,
+    lines,
+    totalLineLength: lines.reduce((sum, line) => sum + lineLength(line), 0),
+    axisDistance:
+      side === 'top' || side === 'bottom'
+        ? Math.abs(markerCenter.x - target.targetCenter.x)
+        : Math.abs(markerCenter.y - target.targetCenter.y),
+  };
+}
+
+function segmentIntersectsRect(segment: StraightConnectorLine, rect: Rect): boolean {
+  return rectsIntersect(lineRect(segment), rect);
+}
+
+function scoreCandidate(params: {
+  candidate: ReturnType<typeof buildCandidate> extends infer T ? T : never;
+  placed: AnatomyPointerPlacement[];
+  targets: AnatomyPointerTarget[];
+  artworkBounds: Rect;
+  preferredOrder: PointerSide[];
+  obstacles: ConnectorObstacle[];
+}): number {
+  const { candidate, placed, targets, artworkBounds, preferredOrder, obstacles } = params;
+  if (!candidate) return Number.POSITIVE_INFINITY;
+
+  let score = 0;
+  const candidateLineRects = candidate.lines.map((line) => lineRect(line));
+
+  for (const existing of placed) {
+    const existingMarkerBounds: Rect = {
+      x: existing.markerX,
+      y: existing.markerY,
+      width: existing.markerSize,
+      height: existing.markerSize,
+    };
+    if (rectsIntersect(candidate.markerBounds, existingMarkerBounds)) {
+      score += MARKER_OVERLAP_PENALTY;
+    }
+
+    const existingLines: StraightConnectorLine[] = existing.segments
+      .map((segment) => {
+        if (segment.orientation === 'horizontal') {
+          return {
+            x1: segment.x,
+            y1: segment.y,
+            x2: segment.x + segment.length,
+            y2: segment.y,
+          };
+        }
+        if (segment.orientation === 'vertical') {
+          return {
+            x1: segment.x,
+            y1: segment.y,
+            x2: segment.x,
+            y2: segment.y + segment.length,
+          };
+        }
+        return null;
+      })
+      .filter((line): line is StraightConnectorLine => Boolean(line));
+
+    for (const candidateLineRect of candidateLineRects) {
+      if (rectsIntersect(candidateLineRect, existingMarkerBounds)) {
+        score += LINE_THROUGH_MARKER_PENALTY;
+      }
+    }
+    for (const existingLine of existingLines) {
+      if (rectsIntersect(lineRect(existingLine), candidate.markerBounds)) {
+        score += LINE_THROUGH_MARKER_PENALTY;
+      }
+      for (const candidateLine of candidate.lines) {
+        if (linesOverlap(candidateLine, existingLine)) {
+          score += CONNECTOR_OVERLAP_PENALTY;
+        } else if (linesCross(candidateLine, existingLine)) {
+          score += CONNECTOR_CROSSING_PENALTY;
+        }
+      }
+    }
+  }
+
+  for (const target of targets) {
+    if (target.itemId === candidate.itemId) continue;
+    const targetRect = inflateRect(target.targetBounds, 3);
+    for (const line of candidate.lines) {
+      if (segmentIntersectsRect(line, targetRect)) {
+        score += TARGET_OBSTACLE_PENALTY;
+      }
+    }
+  }
+
+  for (const obstacle of obstacles) {
+    const inflated = inflateRect(obstacle.bounds, 2);
+    for (const line of candidate.lines) {
+      if (!segmentIntersectsRect(line, inflated)) continue;
+      if (obstacle.kind === 'accent') {
+        score += ACCENT_OBSTACLE_PENALTY;
+      } else if (obstacle.kind === 'target' && obstacle.relatedItemId !== candidate.itemId) {
+        score += TARGET_OBSTACLE_PENALTY;
+      } else if (obstacle.kind === 'marker' && obstacle.relatedItemId !== candidate.itemId) {
+        score += LINE_THROUGH_MARKER_PENALTY;
+      }
+    }
+    const closeInflated = inflateRect(obstacle.bounds, 6);
+    for (const line of candidate.lines) {
+      if (segmentIntersectsRect(line, closeInflated)) {
+        score += CLOSE_TO_OBSTACLE_PENALTY;
+      }
+    }
+  }
+
+  if (rectsIntersect(candidate.markerBounds, artworkBounds)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const sideRank = preferredOrder.indexOf(candidate.side);
+  score += (sideRank < 0 ? SIDE_ORDER.length : sideRank) * 25;
+  score += candidate.axisDistance * 0.2;
+  score += candidate.totalLineLength * LINE_LENGTH_WEIGHT;
+  score += candidate.lines.length * SEGMENT_COUNT_WEIGHT;
+  return score;
+}
+
+function toSegment(line: StraightConnectorLine, nameSuffix: string): AnatomyConnectorSegment {
+  if (isHorizontal(line)) {
+    const x = Math.min(line.x1, line.x2);
+    return {
+      orientation: 'horizontal',
+      x,
+      y: line.y1,
+      length: clampMin(Math.abs(line.x2 - line.x1), 1),
+      nameSuffix,
+    };
+  }
+  const y = Math.min(line.y1, line.y2);
+  return {
+    orientation: 'vertical',
+    x: line.x1,
+    y,
+    length: clampMin(Math.abs(line.y2 - line.y1), 1),
+    nameSuffix,
+  };
+}
+
+function toPlacement(
   item: AnatomyItem,
-  side: AnatomyPointerSide,
-  itemBoundsInPreview: AnatomyBounds,
-  alignmentLines: ReturnType<typeof getPointerAlignmentLines>,
+  side: PointerSide,
+  markerCenter: Point,
+  markerBounds: Rect,
+  targetPoint: Point,
+  lines: StraightConnectorLine[],
+  itemBounds: AnatomyBounds,
   markerSize: number
 ): AnatomyPointerPlacement {
-  const targetX = itemBoundsInPreview.centerX;
-  const targetY = itemBoundsInPreview.centerY;
-
-  let markerX = targetX - markerSize / 2;
-  let markerY = alignmentLines.topY;
-
-  if (side === 'bottom') {
-    markerY = alignmentLines.bottomY;
-  } else if (side === 'left') {
-    markerX = alignmentLines.leftX;
-    markerY = targetY - markerSize / 2;
-  } else if (side === 'right') {
-    markerX = alignmentLines.rightX;
-    markerY = targetY - markerSize / 2;
-  }
-
-  const markerCenterX = markerX + markerSize / 2;
-  const markerCenterY = markerY + markerSize / 2;
-
-  const placement: AnatomyPointerPlacement = {
+  void markerCenter;
+  return {
     item,
-    side,
-    targetX,
-    targetY,
-    markerX,
-    markerY,
+    side: side as AnatomyPointerSide,
+    targetX: targetPoint.x,
+    targetY: targetPoint.y,
+    markerX: markerBounds.x,
+    markerY: markerBounds.y,
     markerSize,
-    itemBounds: itemBoundsInPreview,
-    segments: buildConnectorSegments(
-      side,
-      markerCenterX,
-      markerCenterY,
-      markerSize,
-      itemBoundsInPreview
-    ),
+    itemBounds,
+    segments: lines.map((line, index) => toSegment(line, String(index + 1))),
   };
-
-  return placement;
 }
 
-export function distributeMarkersOnAxis(params: {
-  placements: AnatomyPointerPlacement[];
-  axis: 'x' | 'y';
-  minDistance: number;
-  minValue: number;
-  maxValue: number;
-}): AnatomyPointerPlacement[] {
-  const { placements, axis, minDistance, minValue, maxValue } = params;
-  if (placements.length <= 1) return placements;
+function getItemPlacementId(item: AnatomyItem): string {
+  return String(item.id || item.nodeId);
+}
 
-  const minStep = placements[0].markerSize + minDistance;
-  const sorted = placements.slice().sort((a, b) => {
-    if (axis === 'x') {
-      const tx = a.targetX - b.targetX;
-      if (Math.abs(tx) > 1) return tx;
-      return a.markerX - b.markerX;
-    }
-    const ty = a.targetY - b.targetY;
-    if (Math.abs(ty) > 1) return ty;
-    return a.markerY - b.markerY;
-  });
+function isFiniteRect(rect: Rect): boolean {
+  return (
+    Number.isFinite(rect.x) &&
+    Number.isFinite(rect.y) &&
+    Number.isFinite(rect.width) &&
+    Number.isFinite(rect.height)
+  );
+}
 
-  for (let i = 1; i < sorted.length; i += 1) {
-    const prev = sorted[i - 1];
-    const current = sorted[i];
-    if (axis === 'x') {
-      const minX = prev.markerX + minStep;
-      if (current.markerX < minX) current.markerX = minX;
-    } else {
-      const minY = prev.markerY + minStep;
-      if (current.markerY < minY) current.markerY = minY;
-    }
-    refreshPlacementSegments(current);
-  }
-
-  const last = sorted[sorted.length - 1];
-  const lastEnd = axis === 'x' ? last.markerX + last.markerSize : last.markerY + last.markerSize;
-  if (lastEnd > maxValue) {
-    const overflow = lastEnd - maxValue;
-    for (const p of sorted) {
-      if (axis === 'x') p.markerX -= overflow;
-      else p.markerY -= overflow;
-      refreshPlacementSegments(p);
-    }
-  }
-
-  for (let i = sorted.length - 2; i >= 0; i -= 1) {
-    const current = sorted[i];
-    const next = sorted[i + 1];
-    if (axis === 'x') {
-      const maxX = next.markerX - minStep;
-      if (current.markerX > maxX) {
-        current.markerX = maxX;
-        refreshPlacementSegments(current);
+function buildTargets(items: AnatomyItem[], rootBoundsInPreview: AnatomyRect): AnatomyPointerTarget[] {
+  return items
+    .map((item) => {
+      const itemId = getItemPlacementId(item);
+      if (
+        !Number.isFinite(item.bounds.x) ||
+        !Number.isFinite(item.bounds.y) ||
+        !Number.isFinite(item.bounds.width) ||
+        !Number.isFinite(item.bounds.height)
+      ) {
+        warnOnce(
+          `anatomy-invalid-item-bounds:${itemId}`,
+          `[Anatomy] Skipping marker target for "${item.finalLabel || item.name || item.rawName}" (${itemId}): invalid item bounds.`
+        );
+        return null;
       }
-    } else {
-      const maxY = next.markerY - minStep;
-      if (current.markerY > maxY) {
-        current.markerY = maxY;
-        refreshPlacementSegments(current);
+
+      const width = Math.max(1, Math.round(item.bounds.width));
+      const height = Math.max(1, Math.round(item.bounds.height));
+      const targetBounds: Rect = {
+        x: Math.round(rootBoundsInPreview.x + item.bounds.x),
+        y: Math.round(rootBoundsInPreview.y + item.bounds.y),
+        width,
+        height,
+      };
+      if (!isFiniteRect(targetBounds)) {
+        warnOnce(
+          `anatomy-invalid-target-bounds:${itemId}`,
+          `[Anatomy] Skipping marker target for "${item.finalLabel || item.name || item.rawName}" (${itemId}): invalid target bounds.`
+        );
+        return null;
+      }
+      return {
+        itemId,
+        markerIndex: item.markerIndex,
+        label: item.finalLabel || item.name || '',
+        targetBounds,
+        targetCenter: roundPoint(getTargetCenter(targetBounds)),
+      };
+    })
+    .filter((target): target is AnatomyPointerTarget => Boolean(target))
+    .sort((a, b) => a.markerIndex - b.markerIndex);
+}
+
+function resolveMarkerCollisions(
+  placements: AnatomyPointerPlacement[],
+  itemsById: Map<string, AnatomyItem>,
+  targetsById: Map<string, AnatomyPointerTarget>,
+  allTargets: AnatomyPointerTarget[],
+  artworkBounds: Rect,
+  markerSize: number
+): AnatomyPointerPlacement[] {
+  void itemsById;
+  void targetsById;
+  void allTargets;
+  void artworkBounds;
+  void markerSize;
+  return placements.slice();
+}
+
+function createFallbackPlacementForTarget(params: {
+  item: AnatomyItem;
+  target: AnatomyPointerTarget;
+  artworkBounds: Rect;
+  markerSize: number;
+  preferred: PointerSide[];
+  fallbackIndex: number;
+}): AnatomyPointerPlacement | null {
+  const { item, target, artworkBounds, markerSize, preferred, fallbackIndex } = params;
+  const fallbackOffsets = [
+    0,
+    (fallbackIndex + 1) * (markerSize + 8),
+    -(fallbackIndex + 1) * (markerSize + 8),
+  ];
+  const gapSteps = [24, 36, 48, 64, 80, 120];
+
+  for (const outsideGap of gapSteps) {
+    for (const side of preferred) {
+      for (const axisOffset of fallbackOffsets) {
+        const candidate = buildCandidate({
+          itemId: target.itemId,
+          target,
+          side,
+          markerDiameter: markerSize,
+          outsideGap,
+          axisOffset,
+          artworkBounds,
+          routeMode: 'gutter',
+        });
+        if (!candidate) continue;
+        const itemBounds: AnatomyBounds = {
+          x: target.targetBounds.x,
+          y: target.targetBounds.y,
+          width: target.targetBounds.width,
+          height: target.targetBounds.height,
+          centerX: target.targetCenter.x,
+          centerY: target.targetCenter.y,
+        };
+        return toPlacement(
+          item,
+          side,
+          candidate.markerCenter,
+          candidate.markerBounds,
+          candidate.targetPoint,
+          candidate.lines,
+          itemBounds,
+          markerSize
+        );
       }
     }
   }
 
-  const first = sorted[0];
-  const firstStart = axis === 'x' ? first.markerX : first.markerY;
-  if (firstStart < minValue) {
-    const underflow = minValue - firstStart;
-    for (const p of sorted) {
-      if (axis === 'x') p.markerX += underflow;
-      else p.markerY += underflow;
-      refreshPlacementSegments(p);
-    }
-  }
-
-  for (const p of sorted) {
-    if (axis === 'x') {
-      p.markerX = Math.max(minValue, Math.min(maxValue - p.markerSize, p.markerX));
-    } else {
-      p.markerY = Math.max(minValue, Math.min(maxValue - p.markerSize, p.markerY));
-    }
-    refreshPlacementSegments(p);
-  }
-
-  return sorted;
+  return null;
 }
 
-function sideDistanceToTarget(
-  side: AnatomyPointerSide,
-  targetX: number,
-  targetY: number,
-  bounds: AnatomyRect
-): number {
-  if (side === 'left') return targetX - bounds.x;
-  if (side === 'right') return bounds.x + bounds.width - targetX;
-  if (side === 'top') return targetY - bounds.y;
-  return bounds.y + bounds.height - targetY;
-}
-
-function choosePointerSide(
-  item: AnatomyItem,
-  componentBounds: AnatomyRect,
-  sideCounts: Map<AnatomyPointerSide, number>,
-  maxPerSide: number
-): AnatomyPointerSide {
-  const leftCount = sideCounts.get('left') || 0;
-  if (leftCount < maxPerSide) {
-    return 'left';
-  }
-
-  const candidates: AnatomyPointerSide[] = ['top', 'right', 'bottom'];
-  const available = candidates.filter((s) => (sideCounts.get(s) || 0) < maxPerSide);
-  const pool = available.length > 0 ? available : candidates;
-
-  const targetX = componentBounds.x + item.bounds.centerX;
-  const targetY = componentBounds.y + item.bounds.centerY;
-
-  pool.sort((a, b) => {
-    const countA = sideCounts.get(a) || 0;
-    const countB = sideCounts.get(b) || 0;
-    if (countA !== countB) return countA - countB;
-    return (
-      sideDistanceToTarget(a, targetX, targetY, componentBounds) -
-      sideDistanceToTarget(b, targetX, targetY, componentBounds)
-    );
-  });
-
-  return pool[0];
-}
-
-/**
- * Top-level entry point used by the anatomy generator.
- *
- * Uses the multi-side L-shaped layout (see `anatomyLShapedLayout.ts`) which
- * picks the best side per item, distributes markers along each side to avoid
- * overlap, and emits 1px-segment L-shaped connector routes.
- *
- * `rootBoundsRelative` is kept in the signature for backwards compatibility
- * but is not needed by the L-shaped layout — the artwork is identified by
- * `rootBoundsInPreview` in canvas coordinates.
- */
 export function calculatePointerPlacements(
   items: AnatomyItem[],
   _rootBoundsRelative: AnatomyRect,
   rootBoundsInPreview: AnatomyRect,
   markerSize: number,
-  markerOffset: number,
-  _selectedNode?: SceneNode,
-  contentBoundsInPreview?: AnatomyRect
+  options?: { obstacles?: ConnectorObstacle[] }
 ): AnatomyPointerPlacement[] {
-  if (items.length === 0) return [];
-
-  const markerSafeArea = markerSize + markerOffset + 8;
-  const rightColumnExtent = ANATOMY_POINTER_RIGHT_OFFSET + markerSize + 8;
-  const contentBounds = contentBoundsInPreview ?? rootBoundsInPreview;
-
-  // Preview group (= "canvas" for pointer geometry) — mirrors the size
-  // calculated by anatomyGenerator.createAnatomyFrame().
-  const canvasBounds: AnatomyRect = {
-    x: 0,
-    y: 0,
-    width: contentBounds.x + contentBounds.width + rightColumnExtent,
-    height: contentBounds.y + contentBounds.height + markerSafeArea,
-  };
-
-  return layoutLShapedAnatomyPointers({
-    items,
-    artworkBounds: rootBoundsInPreview,
-    canvasBounds,
-    markerSize,
-    markerOffset,
-  });
-}
-
-export function layoutAnatomyPlacements(
-  items: AnatomyItem[],
-  _rootBoundsRelative: AnatomyRect,
-  rootBoundsInPreview: AnatomyRect,
-  markerSize: number,
-  markerOffset: number,
-  selectedNode?: SceneNode
-): AnatomyPointerPlacement[] {
-  void markerOffset;
-
-  const rootForStructure =
-    selectedNode ??
-    (items[0]?.node.parent && items[0].node.parent.type !== 'PAGE'
-      ? (items[0].node.parent as SceneNode)
-      : items[0]?.node);
-
-  if (!rootForStructure || items.length === 0) {
+  if (!items.length) return [];
+  if (
+    !Number.isFinite(rootBoundsInPreview.x) ||
+    !Number.isFinite(rootBoundsInPreview.y) ||
+    !Number.isFinite(rootBoundsInPreview.width) ||
+    !Number.isFinite(rootBoundsInPreview.height)
+  ) {
+    warnOnce('anatomy-invalid-artwork-bounds', '[Anatomy] Cannot place markers: invalid artwork bounds.');
     return [];
   }
 
-  const labelSizes = new Map<string, { width: number; height: number }>();
-  for (const item of items) {
-    labelSizes.set(item.nodeId, { width: markerSize, height: markerSize });
-  }
-
-  const frameBounds = {
-    x: rootBoundsInPreview.x,
-    y: rootBoundsInPreview.y,
-    width: rootBoundsInPreview.width,
-    height: rootBoundsInPreview.height,
+  const targets = buildTargets(items, rootBoundsInPreview);
+  const targetsById = new Map(targets.map((target) => [target.itemId, target]));
+  const itemsById = new Map(items.map((item) => [getItemPlacementId(item), item]));
+  const artworkBounds: Rect = {
+    x: Math.round(rootBoundsInPreview.x),
+    y: Math.round(rootBoundsInPreview.y),
+    width: Math.round(rootBoundsInPreview.width),
+    height: Math.round(rootBoundsInPreview.height),
   };
+  const externalObstacles = options?.obstacles ?? [];
 
-  const layout = computeAnatomyLayout({
-    selectedNode: rootForStructure,
-    frameBounds,
-    labelSizes,
-    layoutItems: anatomyItemsToLayoutItems(items, frameBounds),
-    horizontalOffset: ANATOMY_POINTER_RIGHT_OFFSET,
-    labelGap: ANATOMY_POINTER_LABEL_GAP,
-    markerSize,
-  });
+  const placed: AnatomyPointerPlacement[] = [];
 
-  const placements = renderAnatomyPointerPlacements(layout, items, markerSize);
+  for (const target of targets) {
+    const item = itemsById.get(target.itemId);
+    if (!item) continue;
 
-  for (const placement of placements) {
-    placement.itemBounds = {
-      x: rootBoundsInPreview.x + placement.item.bounds.x,
-      y: rootBoundsInPreview.y + placement.item.bounds.y,
-      width: placement.item.bounds.width,
-      height: placement.item.bounds.height,
-      centerX: rootBoundsInPreview.x + placement.item.bounds.centerX,
-      centerY: rootBoundsInPreview.y + placement.item.bounds.centerY,
-    };
+    const preferred = sidePreferenceOrder(target, artworkBounds);
+    let bestPlacement: AnatomyPointerPlacement | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    const gapSteps = [MARKER_OUTSIDE_GAP, 36, 48, 64];
+
+    for (const outsideGap of gapSteps) {
+      for (const side of preferred) {
+        for (const axisOffset of MARKER_AXIS_OFFSETS) {
+          const candidate = buildCandidate({
+            itemId: target.itemId,
+            target,
+            side,
+            markerDiameter: markerSize,
+            outsideGap,
+            axisOffset,
+            artworkBounds,
+            routeMode: 'primary',
+          });
+          if (!candidate) continue;
+
+          const routeModes: Array<'primary' | 'secondary' | 'gutter'> = ['primary', 'secondary', 'gutter'];
+          for (const routeMode of routeModes) {
+            const routeCandidate =
+              routeMode === 'primary'
+                ? candidate
+                : buildCandidate({
+                    itemId: target.itemId,
+                    target,
+                    side,
+                    markerDiameter: markerSize,
+                    outsideGap,
+                    axisOffset,
+                    artworkBounds,
+                    routeMode,
+                  });
+            if (!routeCandidate) continue;
+
+            const dynamicObstacles: ConnectorObstacle[] = [
+              ...externalObstacles,
+              ...targets.map((entry) => ({
+                id: `target:${entry.itemId}`,
+                kind: 'target' as const,
+                relatedItemId: entry.itemId,
+                bounds: inflateRect(entry.targetBounds, 3),
+              })),
+              ...placed.map((entry) => ({
+                id: `marker:${getItemPlacementId(entry.item)}`,
+                kind: 'marker' as const,
+                relatedItemId: getItemPlacementId(entry.item),
+                bounds: {
+                  x: entry.markerX,
+                  y: entry.markerY,
+                  width: entry.markerSize,
+                  height: entry.markerSize,
+                },
+              })),
+            ];
+
+            const score = scoreCandidate({
+              candidate: routeCandidate,
+              placed,
+              targets,
+              artworkBounds,
+              preferredOrder: preferred,
+              obstacles: dynamicObstacles,
+            });
+            if (score < bestScore) {
+              const itemBounds: AnatomyBounds = {
+                x: target.targetBounds.x,
+                y: target.targetBounds.y,
+                width: target.targetBounds.width,
+                height: target.targetBounds.height,
+                centerX: target.targetCenter.x,
+                centerY: target.targetCenter.y,
+              };
+              bestPlacement = toPlacement(
+                item,
+                side,
+                routeCandidate.markerCenter,
+                routeCandidate.markerBounds,
+                routeCandidate.targetPoint,
+                routeCandidate.lines,
+                itemBounds,
+                markerSize
+              );
+              bestScore = score;
+            }
+          }
+        }
+      }
+    }
+
+    if (!bestPlacement) {
+      // Fallback: least bad external candidate with expanded gap.
+      for (const outsideGap of [64, 80, 96]) {
+        for (const side of preferred) {
+          for (const axisOffset of MARKER_AXIS_OFFSETS) {
+          const candidate = buildCandidate({
+            itemId: target.itemId,
+            target,
+            side,
+            markerDiameter: markerSize,
+            outsideGap,
+            axisOffset,
+            artworkBounds,
+            routeMode: 'gutter',
+          });
+          if (!candidate) continue;
+          const score = scoreCandidate({
+            candidate,
+            placed,
+            targets,
+            artworkBounds,
+            preferredOrder: preferred,
+            obstacles: externalObstacles,
+          });
+          if (score < bestScore) {
+            const itemBounds: AnatomyBounds = {
+              x: target.targetBounds.x,
+              y: target.targetBounds.y,
+              width: target.targetBounds.width,
+              height: target.targetBounds.height,
+              centerX: target.targetCenter.x,
+              centerY: target.targetCenter.y,
+            };
+            bestPlacement = toPlacement(
+              item,
+              side,
+              candidate.markerCenter,
+              candidate.markerBounds,
+              candidate.targetPoint,
+              candidate.lines,
+              itemBounds,
+              markerSize
+            );
+            bestScore = score;
+          }
+          }
+        }
+      }
+    }
+
+    if (!bestPlacement) {
+      const fallbackSide = preferred[0] || 'right';
+      const fallbackCandidate = buildCandidate({
+        itemId: target.itemId,
+        target,
+        side: fallbackSide,
+        markerDiameter: markerSize,
+        outsideGap: 96,
+        axisOffset: 0,
+        artworkBounds,
+        routeMode: 'gutter',
+      });
+      if (fallbackCandidate) {
+        const itemBounds: AnatomyBounds = {
+          x: target.targetBounds.x,
+          y: target.targetBounds.y,
+          width: target.targetBounds.width,
+          height: target.targetBounds.height,
+          centerX: target.targetCenter.x,
+          centerY: target.targetCenter.y,
+        };
+        bestPlacement = toPlacement(
+          item,
+          fallbackSide,
+          fallbackCandidate.markerCenter,
+          fallbackCandidate.markerBounds,
+          fallbackCandidate.targetPoint,
+          fallbackCandidate.lines,
+          itemBounds,
+          markerSize
+        );
+      }
+    }
+
+    if (bestPlacement) {
+      placed.push(bestPlacement);
+    }
   }
 
-  return placements;
+  const resolved = resolveMarkerCollisions(
+    placed,
+    itemsById,
+    targetsById,
+    targets,
+    artworkBounds,
+    markerSize
+  );
+  const byId = new Map<string, AnatomyPointerPlacement>();
+  for (const placement of resolved) {
+    const id = getItemPlacementId(placement.item);
+    if (byId.has(id)) {
+      warnOnce(
+        `anatomy-duplicate-placement:${id}`,
+        `[Anatomy] Duplicate marker placement detected for "${placement.item.finalLabel || placement.item.name || placement.item.rawName}" (${id}). Keeping first placement.`
+      );
+      continue;
+    }
+    byId.set(id, placement);
+  }
+
+  let fallbackCounter = 0;
+  for (const target of targets) {
+    if (byId.has(target.itemId)) continue;
+    const item = itemsById.get(target.itemId);
+    if (!item) continue;
+    const preferred = sidePreferenceOrder(target, artworkBounds);
+    const fallback = createFallbackPlacementForTarget({
+      item,
+      target,
+      artworkBounds,
+      markerSize,
+      preferred,
+      fallbackIndex: fallbackCounter,
+    });
+    if (fallback) {
+      byId.set(target.itemId, fallback);
+      fallbackCounter += 1;
+      warnOnce(
+        `anatomy-fallback-placement:${target.itemId}`,
+        `[Anatomy] Created fallback marker placement for "${item.finalLabel || item.name || item.rawName}" (${target.itemId}).`
+      );
+    } else {
+      warnOnce(
+        `anatomy-missing-placement:${target.itemId}`,
+        `[Anatomy] Missing marker placement for "${item.finalLabel || item.name || item.rawName}" (${target.itemId}): no valid fallback placement.`
+      );
+    }
+  }
+
+  for (const item of items) {
+    const itemId = getItemPlacementId(item);
+    if (byId.has(itemId)) continue;
+    warnOnce(
+      `anatomy-item-without-target:${itemId}`,
+      `[Anatomy] Item "${item.finalLabel || item.name || item.rawName}" (${itemId}) has no valid target bounds and cannot be rendered.`
+    );
+  }
+
+  return Array.from(byId.values()).sort((a, b) => a.item.markerIndex - b.item.markerIndex);
 }
 
 export function createAnatomyConnectorFrame(
@@ -600,67 +973,68 @@ export function createAnatomyConnectorFrame(
   segments: AnatomyConnectorSegment[],
   color: RGB
 ): FrameNode {
-  const connectorFrame = createPluginFrame();
-  connectorFrame.name = `Anatomy connector / ${index}`;
-  connectorFrame.layoutMode = 'NONE';
-  connectorFrame.fills = [];
-  connectorFrame.strokes = [];
-  connectorFrame.clipsContent = false;
-  connectorFrame.itemSpacing = 0;
-  connectorFrame.paddingTop = 0;
-  connectorFrame.paddingRight = 0;
-  connectorFrame.paddingBottom = 0;
-  connectorFrame.paddingLeft = 0;
+  const frame = createPluginFrame();
+  frame.name = `Anatomy connector / ${index}`;
+  frame.layoutMode = 'NONE';
+  frame.fills = [];
+  frame.strokes = [];
+  frame.clipsContent = false;
+  frame.itemSpacing = 0;
+  frame.paddingTop = 0;
+  frame.paddingRight = 0;
+  frame.paddingBottom = 0;
+  frame.paddingLeft = 0;
 
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
+  if (!segments.length) {
+    frame.resize(1, 1);
+    return frame;
+  }
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
 
   for (const segment of segments) {
-    if (segment.orientation === 'diagonal' && segment.toX != null && segment.toY != null) {
-      const diagonal = createDiagonalConnector(
-        `Anatomy connector segment / ${index} / ${segment.nameSuffix}`,
-        color,
-        { x: segment.x, y: segment.y },
-        { x: segment.toX, y: segment.toY }
-      );
-      connectorFrame.appendChild(diagonal);
-      minX = Math.min(minX, segment.x, segment.toX);
-      minY = Math.min(minY, segment.y, segment.toY);
-      maxX = Math.max(maxX, segment.x, segment.toX);
-      maxY = Math.max(maxY, segment.y, segment.toY);
+    if (segment.orientation !== 'horizontal' && segment.orientation !== 'vertical') {
       continue;
     }
+    const rect = createPluginRectangle();
+    rect.name = `Anatomy connector segment / ${index} / ${segment.nameSuffix}`;
+    rect.fills = [{ type: 'SOLID', color }];
+    rect.strokes = [];
 
-    const rect = createAnatomyConnector({
-      name: `Anatomy connector segment / ${index} / ${segment.nameSuffix}`,
-      orientation: segment.orientation === 'vertical' ? 'vertical' : 'horizontal',
-      length: segment.length,
-      color,
-    });
-    rect.x = segment.x;
-    rect.y = segment.y;
-    connectorFrame.appendChild(rect);
+    if (segment.orientation === 'horizontal') {
+      const width = clampMin(Math.round(segment.length), 1);
+      rect.resize(width, 1);
+      rect.x = Math.round(segment.x);
+      rect.y = Math.round(segment.y);
+    } else {
+      const height = clampMin(Math.round(segment.length), 1);
+      rect.resize(1, height);
+      rect.x = Math.round(segment.x);
+      rect.y = Math.round(segment.y);
+    }
+    frame.appendChild(rect);
 
-    minX = Math.min(minX, segment.x);
-    minY = Math.min(minY, segment.y);
-    maxX = Math.max(maxX, segment.x + rect.width);
-    maxY = Math.max(maxY, segment.y + rect.height);
+    minX = Math.min(minX, rect.x);
+    minY = Math.min(minY, rect.y);
+    maxX = Math.max(maxX, rect.x + rect.width);
+    maxY = Math.max(maxY, rect.y + rect.height);
   }
 
-  if (segments.length === 0) {
-    connectorFrame.resize(1, 1);
-    return connectorFrame;
+  if (!frame.children.length) {
+    frame.resize(1, 1);
+    return frame;
   }
 
-  for (const child of connectorFrame.children) {
+  for (const child of frame.children) {
     child.x -= minX;
     child.y -= minY;
   }
 
-  connectorFrame.resize(Math.max(1, maxX - minX), Math.max(1, maxY - minY));
-  return connectorFrame;
+  frame.resize(clampMin(Math.round(maxX - minX), 1), clampMin(Math.round(maxY - minY), 1));
+  return frame;
 }
 
 export function getPointerFrameBounds(
@@ -673,29 +1047,24 @@ export function getPointerFrameBounds(
   let maxY = placement.markerY + markerSize;
 
   for (const segment of placement.segments) {
-    if (segment.orientation === 'diagonal' && segment.toX != null && segment.toY != null) {
-      minX = Math.min(minX, segment.x, segment.toX);
-      maxX = Math.max(maxX, segment.x, segment.toX);
-      minY = Math.min(minY, segment.y, segment.toY);
-      maxY = Math.max(maxY, segment.y, segment.toY);
+    if (segment.orientation === 'horizontal') {
+      minX = Math.min(minX, segment.x);
+      maxX = Math.max(maxX, segment.x + segment.length);
+      minY = Math.min(minY, segment.y);
+      maxY = Math.max(maxY, segment.y + 1);
     } else if (segment.orientation === 'vertical') {
       minX = Math.min(minX, segment.x);
       maxX = Math.max(maxX, segment.x + 1);
       minY = Math.min(minY, segment.y);
       maxY = Math.max(maxY, segment.y + segment.length);
-    } else {
-      minX = Math.min(minX, segment.x);
-      maxX = Math.max(maxX, segment.x + segment.length);
-      minY = Math.min(minY, segment.y);
-      maxY = Math.max(maxY, segment.y + 1);
     }
   }
 
   return {
-    x: minX,
-    y: minY,
-    width: Math.max(markerSize, maxX - minX),
-    height: Math.max(markerSize, maxY - minY),
+    x: Math.round(minX),
+    y: Math.round(minY),
+    width: clampMin(Math.round(maxX - minX), markerSize),
+    height: clampMin(Math.round(maxY - minY), markerSize),
   };
 }
 

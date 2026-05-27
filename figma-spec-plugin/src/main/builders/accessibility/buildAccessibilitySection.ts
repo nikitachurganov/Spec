@@ -13,14 +13,17 @@ import type { StyleResolver } from '../../tokens/styleResolver';
 import { getSpecBuildStyleContext } from '../../tokens/specStyleContext';
 import { loadFontOnce } from '../../figma/text';
 import type { BuildContext } from '../buildTypes';
-import { KEYBOARD_ROWS, SCREEN_READER_ITEMS } from './accessibilityContent';
+import {
+  getKeyboardRows,
+  SCREEN_READER_ITEMS,
+  type KeyboardKeyAction,
+} from './accessibilityContent';
 
 const FONT_REGULAR: FontName = { family: 'PT Sans', style: 'Regular' };
 const FONT_BOLD: FontName = { family: 'PT Sans', style: 'Bold' };
 const FONT_MONO: FontName = { family: 'Overpass Mono', style: 'Regular' };
 
 const KEY_CELL_WIDTH = 160;
-const TABLE_MIN_WIDTH = 360;
 const HEADER_CELL_MIN_HEIGHT = 48;
 const CONTENT_ROW_MIN_HEIGHT = 64;
 const TABLE_CORNER_RADIUS = 16;
@@ -42,6 +45,21 @@ const BODY = {
   fontSize: 16,
   lineHeight: { unit: 'PERCENT' as const, value: 130 },
 };
+
+const DESCRIPTION_BODY = {
+  fontSize: 18,
+  lineHeight: { unit: 'PERCENT' as const, value: 130 },
+};
+
+const DESCRIPTION_TEXT_STYLE = {
+  names: ['Body/Paragraph', 'Body/Paragraph (18px)', 'body/paragraph'],
+  fallback: {
+    fontName: FONT_REGULAR,
+    fontSize: DESCRIPTION_BODY.fontSize,
+    lineHeight: DESCRIPTION_BODY.lineHeight,
+    fills: [{ type: 'SOLID', color: hexToRgb(COLOR_TOKEN_MAP.textSecondary.fallback) }] as Paint[],
+  },
+} as const;
 
 const TABLE_HEADER_LABEL = {
   fontSize: 14,
@@ -136,12 +154,19 @@ function applyStretchFillInHorizontalRow(cell: FrameNode, minHeight: number): vo
 function applyKeyCellFillHeight(keyCell: FrameNode): void {
   keyCell.resize(KEY_CELL_WIDTH, Math.max(CONTENT_ROW_MIN_HEIGHT, keyCell.height));
   safeLayoutSizing(keyCell, 'horizontal', 'FIXED');
+  safeLayoutSizing(keyCell, 'vertical', 'FILL');
   stretchInParent(keyCell);
 }
 
 function applyActionTextFillWidth(actionText: TextNode): void {
   actionText.textAutoResize = 'HEIGHT';
   safeLayoutSizing(actionText, 'horizontal', 'FILL');
+}
+
+function applyRowFillWidth(row: FrameNode): void {
+  stretchInParent(row);
+  safeLayoutSizing(row, 'horizontal', 'FILL');
+  safeLayoutSizing(row, 'vertical', 'HUG');
 }
 
 function createFrame(name: string, options: FrameOptions = {}): FrameNode {
@@ -372,19 +397,15 @@ async function createBodyText(
   );
 }
 
-async function createScreenReadersListText(
-  text: string,
-  resolver: StyleResolver
-): Promise<TextNode> {
-  const styleDef = SPEC_TOKEN_MAP.textStyles.bulletedList;
+async function createDescriptionText(text: string, resolver: StyleResolver): Promise<TextNode> {
   await loadFontOnce(FONT_REGULAR);
-
   const node = createPluginText();
-  node.name = 'Screen readers list text';
+  node.name = 'Accessibility description';
   node.characters = text.length === 0 ? ' ' : text;
   node.textAutoResize = 'WIDTH_AND_HEIGHT';
 
-  await resolver.applyTextStyle(node, [...styleDef.names], styleDef.fallback);
+  await resolver.applyTextStyle(node, [...DESCRIPTION_TEXT_STYLE.names], DESCRIPTION_TEXT_STYLE.fallback);
+  await applyTextColor(node, 'textSecondary', resolver);
 
   const ctx = getSpecBuildStyleContext();
   if (ctx?.apply) {
@@ -393,7 +414,7 @@ async function createScreenReadersListText(
         node.fontName === figma.mixed ? FONT_REGULAR : (node.fontName as FontName);
       await ctx.apply.applyParagraphFontFamilyToken(node, baseFont, resolver);
     } catch (e) {
-      console.warn('[Accessibility] Screen readers list font family', e);
+      console.warn('[Accessibility] description font family', e);
     }
   }
 
@@ -514,20 +535,72 @@ async function createKeyBadge(key: string, resolver: StyleResolver): Promise<Fra
   return badge;
 }
 
-async function createKeyCell(key: string, resolver: StyleResolver): Promise<FrameNode> {
+async function createKeyOperatorText(
+  text: '+' | ',',
+  layerName: 'Key plus' | 'Key separator',
+  resolver: StyleResolver
+): Promise<TextNode> {
+  return createAccessibilityText(
+    text,
+    {
+      name: layerName,
+      fontName: FONT_REGULAR,
+      fontSize: KEY_BADGE_TEXT.fontSize,
+      lineHeight: KEY_BADGE_TEXT.lineHeight,
+      fontFamilyRole: 'none',
+      colorKey: 'textSecondary',
+    },
+    resolver
+  );
+}
+
+async function createKeyGroup(
+  combinations: ReadonlyArray<ReadonlyArray<string>>,
+  resolver: StyleResolver
+): Promise<FrameNode> {
+  const keyGroup = createFrame('Key group', {
+    layoutMode: 'HORIZONTAL',
+    primaryAxisAlignItems: 'MIN',
+    counterAxisAlignItems: 'CENTER',
+    itemSpacing: 8,
+  });
+
+  for (let comboIndex = 0; comboIndex < combinations.length; comboIndex += 1) {
+    const combo = combinations[comboIndex] ?? [];
+    for (let keyIndex = 0; keyIndex < combo.length; keyIndex += 1) {
+      const key = String(combo[keyIndex] || '').trim();
+      if (!key) continue;
+      keyGroup.appendChild(await createKeyBadge(key, resolver));
+
+      if (keyIndex < combo.length - 1) {
+        keyGroup.appendChild(await createKeyOperatorText('+', 'Key plus', resolver));
+      }
+    }
+
+    if (comboIndex < combinations.length - 1) {
+      keyGroup.appendChild(await createKeyOperatorText(',', 'Key separator', resolver));
+    }
+  }
+
+  return keyGroup;
+}
+
+async function createKeyCell(
+  keyCombinations: ReadonlyArray<ReadonlyArray<string>>,
+  resolver: StyleResolver
+): Promise<FrameNode> {
   const cell = createFrame('Keyboard navigation key cell', {
     layoutMode: 'HORIZONTAL',
     primaryAxisAlignItems: 'MIN',
     counterAxisAlignItems: 'CENTER',
     itemSpacing: 8,
-    paddingTop: 20,
-    paddingBottom: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
     paddingLeft: 20,
     paddingRight: 12,
     width: KEY_CELL_WIDTH,
   });
-  const badge = await createKeyBadge(key, resolver);
-  cell.appendChild(badge);
+  cell.appendChild(await createKeyGroup(keyCombinations, resolver));
   return cell;
 }
 
@@ -540,8 +613,8 @@ async function createActionCell(
     primaryAxisAlignItems: 'MIN',
     counterAxisAlignItems: 'CENTER',
     itemSpacing: 8,
-    paddingTop: 20,
-    paddingBottom: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
     paddingLeft: 20,
     paddingRight: 12,
   });
@@ -565,7 +638,7 @@ async function createActionCell(
 }
 
 async function createKeyboardNavigationRow(
-  rowData: { key: string; action: string },
+  rowData: KeyboardKeyAction,
   resolver: StyleResolver
 ): Promise<FrameNode> {
   const row = createFrame('Keyboard navigation row', {
@@ -576,7 +649,7 @@ async function createKeyboardNavigationRow(
   });
   await applyBottomStroke(row, resolver, 'strokeBorderLight');
 
-  const keyCell = await createKeyCell(rowData.key, resolver);
+  const keyCell = await createKeyCell(rowData.keys, resolver);
   const { cell: actionCell, actionText } = await createActionCell(rowData.action, resolver);
 
   row.appendChild(keyCell);
@@ -585,8 +658,6 @@ async function createKeyboardNavigationRow(
   applyKeyCellFillHeight(keyCell);
   applyStretchFillInHorizontalRow(actionCell, CONTENT_ROW_MIN_HEIGHT);
   applyActionTextFillWidth(actionText);
-
-  stretchInParent(row);
   enforceMinHeight(row, CONTENT_ROW_MIN_HEIGHT);
 
   return row;
@@ -602,7 +673,6 @@ async function createKeyboardTableHeader(context: BuildContext): Promise<FrameNo
     itemSpacing: 0,
     clipsContent: true,
   });
-  stretchInParent(row);
   await applyBackgroundPrimary(row, resolver);
   await applyBottomStroke(row, resolver, 'strokeBorder');
 
@@ -632,14 +702,12 @@ async function createKeyboardTableHeader(context: BuildContext): Promise<FrameNo
   enforceMinHeight(actionCell, HEADER_CELL_MIN_HEIGHT);
   enforceMinHeight(row, HEADER_CELL_MIN_HEIGHT);
 
-  const rowWidth = Math.max(TABLE_MIN_WIDTH, row.width);
-  row.resize(rowWidth, Math.max(HEADER_CELL_MIN_HEIGHT, row.height));
-
   return row;
 }
 
 async function createKeyboardTableBody(context: BuildContext): Promise<FrameNode> {
   const resolver = context.resolver;
+  const rows = getKeyboardRows();
 
   const body = createFrame('Keyboard navigation table body', {
     layoutMode: 'VERTICAL',
@@ -647,9 +715,10 @@ async function createKeyboardTableBody(context: BuildContext): Promise<FrameNode
   });
   stretchInParent(body);
 
-  for (const rowData of KEYBOARD_ROWS) {
+  for (const rowData of rows) {
     const row = await createKeyboardNavigationRow(rowData, resolver);
     body.appendChild(row);
+    applyRowFillWidth(row);
   }
 
   return body;
@@ -674,6 +743,7 @@ async function createKeyboardNavigationTable(context: BuildContext): Promise<Fra
 
   table.appendChild(header);
   table.appendChild(body);
+  applyRowFillWidth(header);
   stretchInParent(header);
   stretchInParent(body);
 
@@ -703,6 +773,57 @@ async function buildAriaBlock(resolver: StyleResolver): Promise<FrameNode> {
   return block;
 }
 
+async function createScreenReaderListItemText(
+  text: string,
+  resolver: StyleResolver
+): Promise<TextNode> {
+  return createAccessibilityText(
+    text,
+    {
+      name: 'Screen reader list item text',
+      fontName: FONT_REGULAR,
+      fontSize: BODY.fontSize,
+      lineHeight: BODY.lineHeight,
+      fontFamilyRole: 'paragraph',
+      colorKey: 'textSecondary',
+    },
+    resolver
+  );
+}
+
+async function createScreenReaderListItem(
+  text: string,
+  resolver: StyleResolver
+): Promise<FrameNode> {
+  const item = createFrame('Screen reader list item', {
+    layoutMode: 'HORIZONTAL',
+    primaryAxisAlignItems: 'MIN',
+    counterAxisAlignItems: 'MIN',
+    itemSpacing: 8,
+  });
+  stretchInParent(item);
+
+  const bullet = await createAccessibilityText(
+    '•',
+    {
+      name: 'Bullet marker',
+      fontName: FONT_REGULAR,
+      fontSize: BODY.fontSize,
+      lineHeight: BODY.lineHeight,
+      fontFamilyRole: 'paragraph',
+      colorKey: 'textSecondary',
+    },
+    resolver
+  );
+  const content = await createScreenReaderListItemText(text, resolver);
+  stretchInParent(content);
+
+  item.appendChild(bullet);
+  item.appendChild(content);
+  safeLayoutSizing(content, 'horizontal', 'FILL');
+  return item;
+}
+
 async function buildScreenReadersBlock(resolver: StyleResolver): Promise<FrameNode> {
   const { block } = await createInnerBlock(
     'Screen readers block',
@@ -713,15 +834,15 @@ async function buildScreenReadersBlock(resolver: StyleResolver): Promise<FrameNo
 
   const list = createFrame('Screen readers list', {
     layoutMode: 'VERTICAL',
-    itemSpacing: 0,
+    itemSpacing: 8,
   });
   stretchInParent(list);
 
-  const screenReadersText = SCREEN_READER_ITEMS.map((line) => `• ${line}`).join('\n');
-  const listText = await createScreenReadersListText(screenReadersText, resolver);
-  stretchInParent(listText);
+  for (const line of SCREEN_READER_ITEMS) {
+    const item = await createScreenReaderListItem(line, resolver);
+    list.appendChild(item);
+  }
 
-  list.appendChild(listText);
   block.appendChild(list);
   stretchInParent(list);
   return block;
@@ -751,7 +872,7 @@ export async function buildAccessibilitySection(context: BuildContext): Promise<
   section.appendChild(title);
   stretchInParent(title);
 
-  const description = await createBodyText('Описание', 'Accessibility description', resolver);
+  const description = await createDescriptionText('Описание', resolver);
   section.appendChild(description);
   stretchInParent(description);
 

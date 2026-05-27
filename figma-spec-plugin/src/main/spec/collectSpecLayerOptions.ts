@@ -1,13 +1,15 @@
 /// <reference types="@figma/plugin-typings" />
 
 import type { SpecLayerOption } from '../../shared/messages';
-import { indexPathToKey } from './nodePathUtils';
+import { buildDecompositionTree } from '../decomposition/buildDecompositionTree';
+import type { DecompositionTree } from '../decomposition/decompositionTypes';
 import { parseContainers } from './parseContainers';
 
 export type CollectSpecLayerOptionsResult = {
   rootName: string;
   options: SpecLayerOption[];
   autoSelectedLayerPaths: string[];
+  decomposition: DecompositionTree;
 };
 
 const SKIP_NAME_PREFIXES = [
@@ -29,85 +31,29 @@ function isHiddenNode(node: SceneNode): boolean {
   return 'visible' in node && node.visible === false;
 }
 
-function isComponentBoundaryNode(node: SceneNode): boolean {
-  return (
+function isSelectableForSpec(node: SceneNode): boolean {
+  if (
     node.type === 'INSTANCE' ||
     node.type === 'COMPONENT' ||
     node.type === 'COMPONENT_SET'
-  );
-}
-
-function isSelectableForSpec(node: SceneNode): boolean {
-  if (node.type === 'TEXT') return false;
-  if (node.type === 'LINE' || node.type === 'VECTOR' || node.type === 'BOOLEAN_OPERATION') {
-    return false;
+  ) {
+    return true;
   }
   if (node.type === 'FRAME' || node.type === 'GROUP' || node.type === 'SECTION') {
     return true;
   }
-  if (isComponentBoundaryNode(node)) return true;
+  if (node.type === 'TEXT') return false;
+  if (node.type === 'LINE' || node.type === 'VECTOR' || node.type === 'BOOLEAN_OPERATION') {
+    return false;
+  }
   return false;
-}
-
-function walkCollect(
-  node: SceneNode,
-  root: SceneNode,
-  indexPath: number[],
-  depth: number,
-  parentPathKey: string | undefined,
-  options: SpecLayerOption[],
-  autoSelectedSet: Set<string>
-): void {
-  if (node !== root) {
-    if (!isHiddenNode(node) && !isServiceNode(node)) {
-      const pathKey = indexPathToKey(indexPath);
-      options.push({
-        path: pathKey,
-        name: node.name || 'Layer',
-        type: node.type,
-        depth,
-        parentPath: parentPathKey,
-        isAutoSelected: autoSelectedSet.has(pathKey),
-        isSelectable: isSelectableForSpec(node),
-        isComponentBoundary: isComponentBoundaryNode(node),
-      });
-    }
-  }
-
-  if (!canTraverseCollect(node, root)) {
-    return;
-  }
-
-  if (!('children' in node) || !node.children?.length) {
-    return;
-  }
-
-  const currentPathKey = node === root ? undefined : indexPathToKey(indexPath);
-
-  for (let i = 0; i < node.children.length; i++) {
-    const child = node.children[i] as SceneNode;
-    walkCollect(
-      child,
-      root,
-      indexPath.concat(i),
-      depth + 1,
-      currentPathKey,
-      options,
-      autoSelectedSet
-    );
-  }
-}
-
-function canTraverseCollect(node: SceneNode, root: SceneNode): boolean {
-  if (node.id === root.id) return true;
-  if (isComponentBoundaryNode(node)) return false;
-  return node.type === 'FRAME' || node.type === 'GROUP' || node.type === 'SECTION';
 }
 
 export async function collectSpecLayerOptions(
   root: SceneNode
 ): Promise<CollectSpecLayerOptionsResult> {
-  const autoContainers = await parseContainers(root, {});
+  const decomposition = await buildDecompositionTree(root);
+  const autoContainers = await parseContainers(root, { decomposition });
   const autoSelectedLayerPaths = autoContainers
     .map((c) => c.nodePathKey)
     .filter((key) => key !== '');
@@ -115,11 +61,31 @@ export async function collectSpecLayerOptions(
   const autoSelectedSet = new Set(autoSelectedLayerPaths);
   const options: SpecLayerOption[] = [];
 
-  walkCollect(root, root, [], 0, undefined, options, autoSelectedSet);
+  for (const [path, decompositionNode] of decomposition.decompositionByPath.entries()) {
+    const sceneNode = decomposition.nodeByPath.get(path);
+    if (!sceneNode) continue;
+    if (path !== '' && (isHiddenNode(sceneNode) || isServiceNode(sceneNode))) continue;
+    const isRoot = path === '';
+
+    options.push({
+      path,
+      name: decompositionNode.displayName || sceneNode.name || 'Layer',
+      type: sceneNode.type,
+      depth: decompositionNode.depth,
+      parentPath: decompositionNode.parentPath ?? undefined,
+      isAutoSelected: autoSelectedSet.has(path),
+      isSelectable: isRoot ? true : isSelectableForSpec(sceneNode),
+      isComponentBoundary: decompositionNode.isComponentLike,
+      isRoot,
+      isText: decompositionNode.isText,
+      kind: decompositionNode.kind,
+    });
+  }
 
   return {
     rootName: root.name || 'Component',
     options,
     autoSelectedLayerPaths,
+    decomposition,
   };
 }

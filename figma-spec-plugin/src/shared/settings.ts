@@ -5,6 +5,7 @@ export type PluginSettings = {
 
   /** Paths from root as index segments joined by `/`, e.g. `1`, `1/0`, `1/2/0` */
   specSelectedLayerPaths: string[];
+  anatomySelectedLayerPaths: string[];
 
   variants: boolean;
   behavior: boolean;
@@ -25,6 +26,7 @@ export const DEFAULT_PLUGIN_SETTINGS: PluginSettings = {
   spec: true,
 
   specSelectedLayerPaths: [],
+  anatomySelectedLayerPaths: [],
 
   variants: false,
   behavior: false,

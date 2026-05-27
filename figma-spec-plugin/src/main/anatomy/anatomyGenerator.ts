@@ -11,16 +11,172 @@ import {
   getDefaultConnectorColor,
   getPointerFrameBounds,
 } from './anatomyGeometry';
-import type { AnatomyGeneratorOptions, AnatomyItem, AnatomyPointerPlacement, AnatomyRect } from './anatomyTypes';
+import type {
+  AnatomyGeneratorOptions,
+  AnatomyItem,
+  AnatomyPointerPlacement,
+  AnatomyRect,
+  ConnectorObstacle,
+} from './anatomyTypes';
 import {
-  ANATOMY_LAYOUT,
   ANATOMY_COLORS,
-  ANATOMY_POINTER_RIGHT_OFFSET,
   hexToRgb,
   mergeAnatomyOptions,
 } from './anatomyStyles';
 import { getSpecBuildStyleContext } from '../tokens/specStyleContext';
 import { getRelativeVisualBounds } from '../figma/visualBounds';
+import { getNodeBoundsRelativeToRoot } from '../figma/nodeBounds';
+
+const anatomyCoverageWarnings = new Set<string>();
+
+function warnOnce(key: string, message: string): void {
+  if (anatomyCoverageWarnings.has(key)) return;
+  anatomyCoverageWarnings.add(key);
+  console.warn(message);
+}
+
+function getPlacementItemId(item: AnatomyItem): string {
+  return String(item.id || item.nodeId);
+}
+
+function isVisibleSceneNode(node: SceneNode): boolean {
+  return !('visible' in node) || node.visible !== false;
+}
+
+function isSolidPaintWithColor(paint: Paint): paint is SolidPaint {
+  return paint.type === 'SOLID' && Boolean(paint.visible ?? true);
+}
+
+function isAccentOrange(color: RGB): boolean {
+  const red = color.r * 255;
+  const green = color.g * 255;
+  const blue = color.b * 255;
+  return (
+    Math.abs(red - 252) <= 35 &&
+    Math.abs(green - 133) <= 55 &&
+    Math.abs(blue - 7) <= 45
+  );
+}
+
+function nodeHasAccentPaint(node: SceneNode): boolean {
+  if ('fills' in node && Array.isArray(node.fills)) {
+    for (const paint of node.fills) {
+      if (isSolidPaintWithColor(paint) && isAccentOrange(paint.color)) {
+        return true;
+      }
+    }
+  }
+  if ('strokes' in node && Array.isArray(node.strokes)) {
+    for (const paint of node.strokes) {
+      if (isSolidPaintWithColor(paint) && isAccentOrange(paint.color)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function sortAnatomyItemsByVisualOrder(items: AnatomyItem[]): AnatomyItem[] {
+  const ROW_TOLERANCE = 12;
+  const sorted = items.slice().sort((a, b) => {
+    const aBounds = a.targetBounds ?? a.bounds;
+    const bBounds = b.targetBounds ?? b.bounds;
+    const yDelta = aBounds.y - bBounds.y;
+    if (Math.abs(yDelta) > ROW_TOLERANCE) {
+      return yDelta;
+    }
+    return aBounds.x - bBounds.x;
+  });
+  return sorted.map((item, index) => ({
+    ...item,
+    markerIndex: index + 1,
+    index: index + 1,
+    name: item.finalLabel,
+  }));
+}
+
+function collectAccentObstacles(
+  rootNode: SceneNode,
+  rootBoundsInPreview: AnatomyRect
+): ConnectorObstacle[] {
+  const obstacles: ConnectorObstacle[] = [];
+
+  function walk(node: SceneNode): void {
+    if (!isVisibleSceneNode(node)) return;
+    if (nodeHasAccentPaint(node)) {
+      const relative = getNodeBoundsRelativeToRoot(node, rootNode);
+      const width = Math.max(1, Math.round(relative.width));
+      const height = Math.max(1, Math.round(relative.height));
+      if (Number.isFinite(relative.x) && Number.isFinite(relative.y) && width > 0 && height > 0) {
+        obstacles.push({
+          id: `accent:${node.id}`,
+          kind: 'accent',
+          relatedItemId: node.id,
+          bounds: {
+            x: Math.round(rootBoundsInPreview.x + relative.x),
+            y: Math.round(rootBoundsInPreview.y + relative.y),
+            width,
+            height,
+          },
+        });
+      }
+    }
+
+    if (!('children' in node) || !Array.isArray(node.children)) return;
+    for (const child of node.children) {
+      walk(child as SceneNode);
+    }
+  }
+
+  walk(rootNode);
+  return obstacles;
+}
+
+function validateAnatomyCoverage(params: {
+  items: AnatomyItem[];
+  placements: AnatomyPointerPlacement[];
+  selectedPathsCount: number;
+  renderedPointersCount: number;
+}): void {
+  const { items, placements, selectedPathsCount, renderedPointersCount } = params;
+  const uniquePlacementIds = new Set<string>();
+  for (const placement of placements) {
+    const id = getPlacementItemId(placement.item);
+    if (uniquePlacementIds.has(id)) {
+      warnOnce(
+        `anatomy-duplicate-placement:${id}`,
+        `[Anatomy] Duplicate placement id detected: ${id}.`
+      );
+      continue;
+    }
+    uniquePlacementIds.add(id);
+  }
+
+  const missingItemIds: string[] = [];
+  for (const item of items) {
+    const id = getPlacementItemId(item);
+    if (!uniquePlacementIds.has(id)) {
+      missingItemIds.push(id);
+      warnOnce(
+        `anatomy-missing-placement:${id}`,
+        `[Anatomy] Missing marker placement for item "${item.finalLabel || item.name || item.rawName}" (${id}).`
+      );
+    }
+  }
+
+  if (
+    selectedPathsCount > 0 &&
+    (items.length !== selectedPathsCount ||
+      placements.length !== items.length ||
+      renderedPointersCount !== placements.length ||
+      missingItemIds.length > 0)
+  ) {
+    warnOnce(
+      `anatomy-coverage-mismatch:${selectedPathsCount}:${items.length}:${placements.length}:${renderedPointersCount}`,
+      `[Anatomy] Coverage mismatch: selectedPaths=${selectedPathsCount}, items=${items.length}, placements=${placements.length}, renderedMarkers=${renderedPointersCount}, missingItemIds=${missingItemIds.join(',') || 'none'}.`
+    );
+  }
+}
 
 async function applyAnatomyMarkerTextInverse(textNode: TextNode): Promise<void> {
   const ctx = getSpecBuildStyleContext();
@@ -279,21 +435,16 @@ async function createAnatomyFrame(params: CreateAnatomyFrameParams): Promise<Fra
   }
 
   const items = collectSemanticAnatomyItems(rootClone, merged);
-  const { visualBounds, rootOffset } = getRelativeVisualBounds(rootClone);
+  const { rootOffset } = getRelativeVisualBounds(rootClone);
   const offsetX = Math.round(rootOffset.x);
   const offsetY = Math.round(rootOffset.y);
-  const visualWidth = Math.max(1, Math.round(visualBounds.width));
-  const visualHeight = Math.max(1, Math.round(visualBounds.height));
 
   const fp = merged.framePadding;
   const listGap = merged.listGap;
-  const cw = rootClone.width;
-  const ch = rootClone.height;
 
   const markerSize = merged.markerSize;
   const markerOffset = merged.markerOffset;
   const markerSafeArea = markerSize + markerOffset + 8;
-  const rightColumnExtent = ANATOMY_POINTER_RIGHT_OFFSET + markerSize + 8;
 
   const previewGroup = createPluginFrame();
   previewGroup.name = 'Anatomy preview group';
@@ -301,44 +452,88 @@ async function createAnatomyFrame(params: CreateAnatomyFrameParams): Promise<Fra
   previewGroup.fills = [];
   previewGroup.strokes = [];
   previewGroup.clipsContent = false;
-  previewGroup.resize(
-    Math.max(1, Math.round(markerSafeArea + visualWidth + rightColumnExtent)),
-    Math.max(1, Math.round(markerSafeArea + visualHeight + markerSafeArea))
-  );
+  previewGroup.resize(1, 1);
 
   rootClone.x = markerSafeArea + offsetX;
   rootClone.y = markerSafeArea + offsetY;
-  previewGroup.appendChild(rootClone);
 
-  const rootBoundsRelative: AnatomyRect = { x: 0, y: 0, width: cw, height: ch };
+  const rootBoundsRelative: AnatomyRect = { x: 0, y: 0, width: rootClone.width, height: rootClone.height };
   const rootBoundsInPreview: AnatomyRect = {
     x: rootClone.x,
     y: rootClone.y,
     width: rootClone.width,
     height: rootClone.height,
   };
-  const contentBoundsInPreview: AnatomyRect = {
-    x: markerSafeArea,
-    y: markerSafeArea,
-    width: visualWidth,
-    height: visualHeight,
-  };
+
+  const itemsForLayout = items.map((item) => ({
+    ...item,
+    targetBounds: {
+      x: rootBoundsInPreview.x + item.bounds.x,
+      y: rootBoundsInPreview.y + item.bounds.y,
+      width: Math.max(1, item.bounds.width),
+      height: Math.max(1, item.bounds.height),
+    },
+  }));
+  const visualOrderedItems = sortAnatomyItemsByVisualOrder(itemsForLayout);
+  const accentObstacles = collectAccentObstacles(rootClone, rootBoundsInPreview);
 
   const placements = calculatePointerPlacements(
-    items,
+    visualOrderedItems,
     rootBoundsRelative,
     rootBoundsInPreview,
     markerSize,
-    markerOffset,
-    rootClone,
-    contentBoundsInPreview
+    { obstacles: accentObstacles }
   );
 
+  const pointers: FrameNode[] = [];
   for (const placement of placements) {
-    previewGroup.appendChild(await createAnatomyPointer(placement, merged));
+    try {
+      pointers.push(await createAnatomyPointer(placement, merged));
+    } catch (error) {
+      const id = getPlacementItemId(placement.item);
+      warnOnce(
+        `anatomy-render-pointer-failed:${id}`,
+        `[Anatomy] Failed to render marker for "${placement.item.finalLabel || placement.item.name || placement.item.rawName}" (${id}).`
+      );
+      console.warn('[Anatomy] Pointer render error', error);
+    }
+  }
+  validateAnatomyCoverage({
+    items: visualOrderedItems,
+    placements,
+    selectedPathsCount: Array.isArray(merged.selectedLayerPaths) ? merged.selectedLayerPaths.length : 0,
+    renderedPointersCount: pointers.length,
+  });
+
+  let minX = rootClone.x;
+  let minY = rootClone.y;
+  let maxX = rootClone.x + rootClone.width;
+  let maxY = rootClone.y + rootClone.height;
+  for (const pointer of pointers) {
+    minX = Math.min(minX, pointer.x);
+    minY = Math.min(minY, pointer.y);
+    maxX = Math.max(maxX, pointer.x + pointer.width);
+    maxY = Math.max(maxY, pointer.y + pointer.height);
   }
 
-  const list = await createAnatomyList(items, merged);
+  const shiftX = minX < 0 ? -minX : 0;
+  const shiftY = minY < 0 ? -minY : 0;
+  rootClone.x += shiftX;
+  rootClone.y += shiftY;
+  for (const pointer of pointers) {
+    pointer.x += shiftX;
+    pointer.y += shiftY;
+  }
+
+  maxX += shiftX;
+  maxY += shiftY;
+  previewGroup.resize(Math.max(1, Math.round(maxX)), Math.max(1, Math.round(maxY)));
+  previewGroup.appendChild(rootClone);
+  for (const pointer of pointers) {
+    previewGroup.appendChild(pointer);
+  }
+
+  const list = await createAnatomyList(visualOrderedItems, merged);
 
   const anatomyFrame = createPluginFrame();
   anatomyFrame.name = title;
@@ -357,7 +552,7 @@ async function createAnatomyFrame(params: CreateAnatomyFrameParams): Promise<Fra
   previewGroup.y = fp;
   anatomyFrame.appendChild(previewGroup);
 
-  list.x = fp + markerSafeArea + visualWidth + listGap;
+  list.x = fp + previewGroup.width + listGap;
   list.y = fp + Math.max(0, (previewGroup.height - list.height) / 2);
   anatomyFrame.appendChild(list);
 

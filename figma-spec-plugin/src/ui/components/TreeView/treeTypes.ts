@@ -32,6 +32,7 @@ export type TreeViewProps = {
 
   selectable?: boolean;
   checkable?: boolean;
+  cascadeSelection?: boolean;
 
   onExpand?: (expandedKeys: string[]) => void;
   onCheck?: (checkedKeys: string[], info: TreeCheckInfo) => void;

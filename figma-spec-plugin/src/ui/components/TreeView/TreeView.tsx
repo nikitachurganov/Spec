@@ -16,6 +16,7 @@ export function TreeView({
   defaultCheckedKeys,
   selectable = true,
   checkable = true,
+  cascadeSelection = true,
   onExpand,
   onCheck,
   onSelect,
@@ -36,12 +37,12 @@ export function TreeView({
   const effectiveChecked = isCheckedControlled ? checkedKeys! : internalChecked;
 
   const { checkedSet, halfCheckedSet } = useMemo(() => {
-    const state = calculateCheckedState(data, effectiveChecked);
+    const state = calculateCheckedState(data, effectiveChecked, cascadeSelection);
     return {
       checkedSet: new Set(state.checkedKeys),
       halfCheckedSet: new Set(state.halfCheckedKeys),
     };
-  }, [data, effectiveChecked]);
+  }, [data, effectiveChecked, cascadeSelection]);
 
   const expandedSet = useMemo(() => new Set(effectiveExpanded), [effectiveExpanded]);
   const selectedSet = useMemo(() => new Set(selectedKeys), [selectedKeys]);
@@ -60,16 +61,22 @@ export function TreeView({
 
   const handleCheck = useCallback(
     (node: TreeNodeData, nextChecked: boolean) => {
-      const nextKeys = toggleCheck(data, node.key, nextChecked, effectiveChecked);
+      const nextKeys = toggleCheck(
+        data,
+        node.key,
+        nextChecked,
+        effectiveChecked,
+        cascadeSelection
+      );
       const info: TreeCheckInfo = {
         checked: nextChecked,
         node,
-        halfCheckedKeys: calculateCheckedState(data, nextKeys).halfCheckedKeys,
+        halfCheckedKeys: calculateCheckedState(data, nextKeys, cascadeSelection).halfCheckedKeys,
       };
       if (!isCheckedControlled) setInternalChecked(nextKeys);
       onCheck?.(nextKeys, info);
     },
-    [data, effectiveChecked, isCheckedControlled, onCheck]
+    [data, effectiveChecked, isCheckedControlled, onCheck, cascadeSelection]
   );
 
   const handleSelect = useCallback(

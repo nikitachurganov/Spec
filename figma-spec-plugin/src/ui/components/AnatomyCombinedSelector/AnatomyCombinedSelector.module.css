@@ -1,0 +1,66 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.hint {
+  margin: 0;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 130%;
+}
+
+.panels {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.panel {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.panelPreview {
+  flex: 0 0 auto;
+}
+
+.panelTree {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panelTitle {
+  margin: 0 0 8px;
+  color: #4e4e4e;
+  font-size: 13px;
+  line-height: 130%;
+  font-weight: 700;
+}
+
+.treeWrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.summary {
+  margin: 0;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 130%;
+}
+
