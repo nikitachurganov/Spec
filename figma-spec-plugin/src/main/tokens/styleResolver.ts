@@ -7,7 +7,12 @@ import {
   getLocalTextStylesSafe,
   preloadLocalStylesCache,
 } from '../figma/localStyles';
-import { getLocalVariablesSafe } from '../figma/variables';
+import {
+  getLibraryVariableCollectionsSafe,
+  getLocalVariablesSafe,
+  getVariablesInLibraryCollectionSafe,
+  importVariableByKeySafe,
+} from '../figma/variables';
 import type {
   ResolvedColorToken,
   ResolvedNumberToken,
@@ -289,22 +294,10 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
   async function loadLibraryVariables(): Promise<void> {
     if (!useLibrary) return;
     try {
-      const team = (
-        figma as PluginAPI & {
-          teamLibrary?: {
-            getAvailableLibraryVariableCollectionsAsync?: () => Promise<LibraryVariableCollection[]>;
-            getVariablesInLibraryCollectionAsync?: (
-              collectionKey: string
-            ) => Promise<LibraryVariable[]>;
-          };
-        }
-      ).teamLibrary;
-      if (!team?.getAvailableLibraryVariableCollectionsAsync) return;
-
-      const collections = await team.getAvailableLibraryVariableCollectionsAsync();
+      const collections = await getLibraryVariableCollectionsSafe();
       for (const col of collections) {
         try {
-          const vars = await team.getVariablesInLibraryCollectionAsync!(col.key);
+          const vars = await getVariablesInLibraryCollectionSafe(col.key);
           for (const v of vars) {
             const nn = normalizeTokenName(v.name);
             const desc: LibraryVarDescriptor = {
@@ -321,7 +314,7 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
         }
       }
     } catch (e) {
-      console.warn('[StyleResolver] teamLibrary unavailable', e);
+      console.warn('[StyleResolver] library variables unavailable', e);
     }
   }
 
@@ -384,12 +377,10 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
         if (importedByKey.has(d.key)) {
           v = importedByKey.get(d.key)!;
         } else {
-          try {
-            v = await figma.variables.importVariableByKeyAsync(d.key);
-            importedByKey.set(d.key, v);
-          } catch {
-            continue;
-          }
+          const imported = await importVariableByKeySafe(d.key);
+          if (!imported) continue;
+          v = imported;
+          importedByKey.set(d.key, v);
         }
         if (!isStringVariable(v)) continue;
         return { variable: v, tokenName: v.name, source: 'library-variable' };
@@ -454,13 +445,10 @@ export function createStyleResolver(options: CreateOptions): StyleResolver {
           const v = importedByKey.get(d.key)!;
           if (v.resolvedType === type) return v;
         }
-        try {
-          const v = await figma.variables.importVariableByKeyAsync(d.key);
-          importedByKey.set(d.key, v);
-          if (v.resolvedType === type) return v;
-        } catch {
-          /* continue */
-        }
+        const imported = await importVariableByKeySafe(d.key);
+        if (!imported) continue;
+        importedByKey.set(d.key, imported);
+        if (imported.resolvedType === type) return imported;
       }
     }
     return null;

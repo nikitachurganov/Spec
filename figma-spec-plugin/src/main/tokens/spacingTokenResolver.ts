@@ -3,6 +3,7 @@
 import { debugLog } from '../debug';
 import {
   getLibraryVariableCollectionsSafe,
+  importVariableByKeySafe,
   getVariableNumericValue,
   getVariablesInLibraryCollectionSafe,
 } from '../figma/variables';
@@ -132,8 +133,9 @@ async function loadSpacingTokensFromLibrary(index: IndexedSpacing[]): Promise<bo
       if (lv.resolvedType !== 'FLOAT') continue;
       if (!spacingNameMatchesSemantic(lv.name)) continue;
 
+      const v = await importVariableByKeySafe(lv.key);
+      if (!v) continue;
       try {
-        const v = await figma.variables.importVariableByKeyAsync(lv.key);
         if (v.resolvedType !== 'FLOAT') continue;
 
         const importedCollection = v.variableCollectionId
@@ -156,7 +158,7 @@ async function loadSpacingTokensFromLibrary(index: IndexedSpacing[]): Promise<bo
         );
         loaded++;
       } catch (e) {
-        debugLog('[SpacingTokens] importVariableByKeyAsync failed', lv.name, e);
+        debugLog('[SpacingTokens] importVariableByKeySafe failed', lv.name, e);
       }
     }
   }

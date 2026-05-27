@@ -12,7 +12,7 @@ import { AnatomyGenerator } from '../anatomy/anatomyGenerator';
 import { createPaddingVisualization } from '../builders/buildContainerPreviewCard';
 import { createSpecContainersEmptyState } from '../builders/buildSpecSection';
 import { parseContainers } from '../spec/parseContainers';
-import { getSpecBuildStyleContext } from '../tokens/specStyleContext';
+import { getSpecBuildStyleContext, attachNodeToActiveStagingPage } from '../tokens/specStyleContext';
 var FONT_PT_SANS_REGULAR = { family: 'PT Sans', style: 'Regular' };
 var FONT_PT_SANS_BOLD = { family: 'PT Sans', style: 'Bold' };
 
@@ -581,7 +581,7 @@ function getGapBoundsBetweenChildrenRelativeToRoot(
 }
 
 function createTargetContainerOutline(targetBounds) {
-  var outline = figma.createFrame();
+  var outline = createPluginFrameRaw();
   outline.name = 'Target container outline';
   outline.layoutMode = 'NONE';
   outline.clipsContent = false;
@@ -662,7 +662,7 @@ async function createChildOverlay(child, rootClone) {
 
   var offset = getChildOverlayOffset(child);
 
-  var overlay = figma.createFrame();
+  var overlay = createPluginFrameRaw();
   overlay.name = 'Child overlay / ' + String(child.name);
   overlay.layoutMode = 'NONE';
   overlay.clipsContent = false;
@@ -713,7 +713,7 @@ async function createChildOverlaysForClone(clone) {
 }
 
 function createZeroPointFrame() {
-  var frame = figma.createFrame();
+  var frame = createPluginFrameRaw();
   frame.name = 'Zero point';
   frame.fills = [];
   frame.strokes = [];
@@ -765,7 +765,7 @@ function getOverlayItemSpacing(side, bounds) {
 async function createMeasureFillFrame(side, bounds) {
   void side;
 
-  var frame = figma.createFrame();
+  var frame = createPluginFrameRaw();
   frame.name = 'Padding measure fill';
   frame.fills = [];
   frame.strokes = [];
@@ -793,7 +793,7 @@ async function createMeasureFillFrame(side, bounds) {
 }
 
 async function createGapMeasureFillFrame(bounds) {
-  var frame = figma.createFrame();
+  var frame = createPluginFrameRaw();
   frame.name = 'Gap measure fill';
   frame.fills = [];
   frame.strokes = [];
@@ -978,7 +978,7 @@ async function createPaddingValueSquare(tokenizedValue) {
       : NaN;
   var valueStr = !isNaN(rawVal) ? String(Math.round(rawVal)) : '—';
 
-  var square = figma.createFrame();
+  var square = createPluginFrameRaw();
   square.name = 'Padding value square';
   square.layoutMode = 'HORIZONTAL';
   square.primaryAxisAlignItems = 'CENTER';
@@ -1121,7 +1121,7 @@ async function createGapValueSquare(tokenizedGap) {
       : NaN;
   var valueStr = !isNaN(rawVal) ? String(Math.round(rawVal)) : '—';
 
-  var square = figma.createFrame();
+  var square = createPluginFrameRaw();
   square.name = 'Gap value square';
   square.layoutMode = 'HORIZONTAL';
   square.primaryAxisAlignItems = 'CENTER';
@@ -1197,7 +1197,7 @@ async function createGapOverlay(bounds, tokenizedGap, direction, options) {
     ) || 0
   );
 
-  var overlay = figma.createFrame();
+  var overlay = createPluginFrameRaw();
   overlay.name = 'Gap overlay';
 
   overlay.layoutMode = orientation === 'vertical' ? 'VERTICAL' : 'HORIZONTAL';
@@ -1335,7 +1335,7 @@ async function createPaddingOverlay(side, tokenizedValue, bounds) {
 
   var isHoriz = side === 'Top' || side === 'Bottom';
 
-  var overlay = figma.createFrame();
+  var overlay = createPluginFrameRaw();
   overlay.name = 'Padding overlay / ' + String(side);
   overlay.layoutMode = isHoriz ? 'HORIZONTAL' : 'VERTICAL';
   overlay.itemSpacing = getOverlayItemSpacing(side, bounds);
@@ -2522,9 +2522,27 @@ function stretchInParent(node) {
   }
 }
 
+function createPluginFrameRaw() {
+  var f = figma.createFrame();
+  attachNodeToActiveStagingPage(f);
+  return f;
+}
+
+function createPluginTextRaw() {
+  var t = figma.createText();
+  attachNodeToActiveStagingPage(t);
+  return t;
+}
+
+function createPluginRectangleRaw() {
+  var r = figma.createRectangle();
+  attachNodeToActiveStagingPage(r);
+  return r;
+}
+
 function createFrameNode(name, options) {
   options = options || {};
-  var f = figma.createFrame();
+  var f = createPluginFrameRaw();
   f.name = name;
   if (options.fills !== undefined) {
     f.fills = options.fills;
@@ -2607,7 +2625,7 @@ async function createTextNode(text, options) {
   options = options || {};
   var raw = text === undefined || text === null ? '' : text;
   var str = typeof raw === 'string' ? raw : String(raw);
-  var t = figma.createText();
+  var t = createPluginTextRaw();
   t.name = options.name || 'Text';
 
   var styleApplied = false;
@@ -3075,7 +3093,7 @@ async function createPropertyRow(label, value, designTokens, dim, containerForIc
 
 function createDivider(designTokens, dividerWidth) {
   var w = dividerWidth != null ? dividerWidth : INNER_ROW_WIDTH;
-  var r = figma.createRectangle();
+  var r = createPluginRectangleRaw();
   r.name = 'Divider';
   r.resize(w, 1);
   if (designTokens && designTokens.colors && designTokens.colors.cardBorder) {
@@ -3412,15 +3430,27 @@ async function createContainerCard(container, index, designTokens) {
   } catch (_contentGrowErr) {
     /* ignore */
   }
+  try {
+    content.layoutAlign = 'STRETCH';
+  } catch (_contentStretchErr) {
+    /* ignore */
+  }
   content.primaryAxisSizingMode = 'AUTO';
   content.counterAxisSizingMode = 'AUTO';
   content.clipsContent = false;
 
   var minContentH = SPEC_CARD_LAYOUT.containerCardContentHeight;
-  if (content.height < minContentH) {
+  if ('minHeight' in content) {
+    try {
+      content.minHeight = minContentH;
+    } catch (_contentMinHeightProp) {
+      if (content.height < minContentH) {
+        content.resize(Math.max(1, content.width), minContentH);
+      }
+    }
+  } else if (content.height < minContentH) {
     try {
       content.resize(Math.max(1, content.width), minContentH);
-      content.primaryAxisSizingMode = 'FIXED';
     } catch (_contentMinH) {
       /* ignore */
     }
@@ -3625,7 +3655,7 @@ async function buildSpecObject(root, options) {
 }
 
 async function createSpecFrame(root, spec, designTokens, sections) {
-  var specFrame = figma.createFrame();
+  var specFrame = createPluginFrameRaw();
   specFrame.name = 'Spec';
   specFrame.layoutMode = 'VERTICAL';
   specFrame.primaryAxisSizingMode = 'AUTO';
@@ -3996,7 +4026,7 @@ async function buildSpecification(sections, root) {
     selectedLayerPaths: sections.specSelectedLayerPaths || [],
   });
 
-  var specificationFrame = figma.createFrame();
+  var specificationFrame = createPluginFrameRaw();
   specificationFrame.name = 'Specification / ' + root.name;
   specificationFrame.layoutMode = 'VERTICAL';
   specificationFrame.primaryAxisSizingMode = 'AUTO';

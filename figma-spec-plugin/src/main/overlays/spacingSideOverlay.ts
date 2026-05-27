@@ -1,4 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginFrame, createPluginText } from '../figma/pluginSceneNodes';
 
 import type {
   GapOrientation,
@@ -53,7 +54,7 @@ export const GAP_VALUE_SQUARE_OFFSET_LEFT_VERTICAL = -6;
 export const GAP_VALUE_SQUARE_OFFSET_LEFT_HORIZONTAL = -24;
 
 function createZeroPointFrame(): FrameNode {
-  const frame = figma.createFrame();
+  const frame = createPluginFrame();
   frame.name = 'Zero point';
   frame.fills = [];
   frame.strokes = [];
@@ -102,7 +103,7 @@ async function createMeasureFillFrame(
   kind: SpacingOverlayKind,
   bounds: SpacingSideOverlayBounds
 ): Promise<FrameNode> {
-  const frame = figma.createFrame();
+  const frame = createPluginFrame();
   frame.name = kind === 'padding' ? 'Padding measure fill' : 'Gap measure fill';
   frame.fills = [];
   frame.strokes = [];
@@ -141,7 +142,7 @@ export async function createSpacingValueSquare(
     tokenizedValue?.value != null ? Number(tokenizedValue.value) : Number.NaN;
   const valueStr = !Number.isNaN(rawVal) ? String(Math.round(rawVal)) : '—';
 
-  const square = figma.createFrame();
+  const square = createPluginFrame();
   square.name = kind === 'padding' ? 'Padding value square' : 'Gap value square';
   square.layoutMode = 'HORIZONTAL';
   square.primaryAxisAlignItems = 'CENTER';
@@ -164,7 +165,7 @@ export async function createSpacingValueSquare(
   }
 
   await loadFontOnce(FONT_REGULAR);
-  const text = figma.createText();
+  const text = createPluginText();
   text.name = kind === 'padding' ? 'Padding value' : 'Gap value';
   text.fontName = FONT_REGULAR;
   text.fontSize = 12;
@@ -196,7 +197,7 @@ export async function createGapValueSquare(
     tokenizedValue?.value != null ? Number(tokenizedValue.value) : Number.NaN;
   const valueStr = !Number.isNaN(rawVal) ? String(Math.round(rawVal)) : '—';
 
-  const square = figma.createFrame();
+  const square = createPluginFrame();
   square.name = 'Gap value square';
   square.layoutMode = 'HORIZONTAL';
   square.primaryAxisAlignItems = 'CENTER';
@@ -216,7 +217,7 @@ export async function createGapValueSquare(
   await applyGapValueSquareFill(square);
 
   await loadFontOnce(FONT_REGULAR);
-  const text = figma.createText();
+  const text = createPluginText();
   text.name = 'Gap value text';
   text.fontName = FONT_REGULAR;
   text.fontSize = 12;
@@ -300,7 +301,7 @@ export async function createSpacingSideOverlay(params: {
 
   const isHoriz = side === 'Top' || side === 'Bottom';
 
-  const overlay = figma.createFrame();
+  const overlay = createPluginFrame();
   overlay.name = frameName;
   overlay.layoutMode = isHoriz ? 'HORIZONTAL' : 'VERTICAL';
   overlay.itemSpacing = getOverlayItemSpacing(side, bounds);

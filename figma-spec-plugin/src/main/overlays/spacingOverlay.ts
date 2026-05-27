@@ -1,4 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginFrame, createPluginRectangle, createPluginText } from '../figma/pluginSceneNodes';
 
 import { loadFontOnce } from '../figma/text';
 import {
@@ -72,7 +73,7 @@ function createCanvas(params: {
   width: number;
   height: number;
 }): FrameNode {
-  const canvas = figma.createFrame();
+  const canvas = createPluginFrame();
   canvas.name =
     params.kind === 'padding'
       ? `${params.name} canvas`
@@ -90,7 +91,7 @@ async function createMeasureFill(params: {
   localRect: Rect;
   colors: SpacingOverlayColors;
 }): Promise<FrameNode> {
-  const fill = figma.createFrame();
+  const fill = createPluginFrame();
   fill.name = params.kind === 'padding' ? 'Padding measure fill' : 'Gap measure fill';
   fill.layoutMode = 'NONE';
   fill.x = Math.round(params.localRect.x);
@@ -121,7 +122,7 @@ async function createBorder(params: {
   height: number;
   colors: SpacingOverlayColors;
 }): Promise<RectangleNode> {
-  const border = figma.createRectangle();
+  const border = createPluginRectangle();
   border.name = params.name;
   border.x = Math.round(params.x);
   border.y = Math.round(params.y);
@@ -147,7 +148,7 @@ async function createSpacingValueSquare(params: {
   valueLabel: string;
   colors: SpacingOverlayColors;
 }): Promise<FrameNode> {
-  const square = figma.createFrame();
+  const square = createPluginFrame();
   square.name = params.kind === 'padding' ? 'Padding value square' : 'Gap value square';
   square.layoutMode = 'HORIZONTAL';
   square.primaryAxisAlignItems = 'CENTER';
@@ -171,7 +172,7 @@ async function createSpacingValueSquare(params: {
   }
 
   await loadFontOnce(FONT_REGULAR);
-  const text = figma.createText();
+  const text = createPluginText();
   text.name = params.kind === 'padding' ? 'Padding value text' : 'Gap value text';
   text.fontName = FONT_REGULAR;
   text.fontSize = 12;
@@ -267,7 +268,7 @@ export async function createSpacingOverlaySide(
   const height = Math.max(1, overlayRect.height);
   const isHorizontalSide = params.side === 'top' || params.side === 'bottom';
 
-  const overlay = figma.createFrame();
+  const overlay = createPluginFrame();
   overlay.name = params.name;
   overlay.layoutMode = isHorizontalSide ? 'HORIZONTAL' : 'VERTICAL';
   overlay.primaryAxisSizingMode = 'FIXED';

@@ -1,4 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginFrame } from '../figma/pluginSceneNodes';
 
 import { getNodeBoundsRelativeToRoot } from '../figma/nodeBounds';
 import { getSpecBuildStyleContext } from '../tokens/specStyleContext';
@@ -67,7 +68,7 @@ async function createChildOverlay(
   const bounds = getNodeBoundsRelativeToRoot(child, rootClone);
   if (bounds.width <= 0 || bounds.height <= 0) return null;
 
-  const overlay = figma.createFrame();
+  const overlay = createPluginFrame();
   overlay.name = `Child overlay / ${child.name}`;
   overlay.layoutMode = 'NONE';
   overlay.clipsContent = false;

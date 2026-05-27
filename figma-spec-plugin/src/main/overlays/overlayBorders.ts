@@ -1,4 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginRectangle } from '../figma/pluginSceneNodes';
 
 import type { Rect } from './overlayGeometry';
 import { getSpecBuildStyleContext } from '../tokens/specStyleContext';
@@ -46,7 +47,7 @@ export function createOverlayBorderLines(params: {
   const h = Math.max(1, Math.round(rect.height));
 
   for (const side of sides) {
-    const line = figma.createRectangle();
+    const line = createPluginRectangle();
     line.fills = [{ type: 'SOLID', color }];
     line.strokes = [];
 

@@ -1,11 +1,12 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginFrame } from '../figma/pluginSceneNodes';
 
 import type { Rect } from './overlayGeometry';
 import { getSpecBuildStyleContext } from '../tokens/specStyleContext';
 import { hexToRgb } from '../tokens/tokenMap';
 
 export function createTargetContainerOutline(targetBounds: Rect): FrameNode {
-  const outline = figma.createFrame();
+  const outline = createPluginFrame();
   outline.name = 'Target container outline';
   outline.layoutMode = 'NONE';
   outline.clipsContent = false;

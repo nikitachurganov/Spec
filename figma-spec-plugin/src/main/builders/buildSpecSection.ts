@@ -1,4 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginFrame, createPluginText } from '../figma/pluginSceneNodes';
 
 import { loadFontOnce } from '../figma/text';
 
@@ -12,7 +13,7 @@ export type SpecContainersEmptyStateMode = 'manual' | 'auto';
 export async function createSpecContainersEmptyState(
   mode: SpecContainersEmptyStateMode = 'auto'
 ): Promise<FrameNode> {
-  const wrap = figma.createFrame();
+  const wrap = createPluginFrame();
   wrap.name = 'Spec empty state';
   wrap.layoutMode = 'VERTICAL';
   wrap.itemSpacing = 8;
@@ -28,7 +29,7 @@ export async function createSpecContainersEmptyState(
 
   await loadFontOnce(FONT_REGULAR);
 
-  const title = figma.createText();
+  const title = createPluginText();
   title.name = 'Spec empty title';
   title.fontName = FONT_REGULAR;
   title.fontSize = 14;
@@ -38,7 +39,7 @@ export async function createSpecContainersEmptyState(
     mode === 'manual' ? 'Не найдено слоёв для Spec' : 'Не найдено контейнеров для Spec';
   wrap.appendChild(title);
 
-  const description = figma.createText();
+  const description = createPluginText();
   description.name = 'Spec empty description';
   description.fontName = FONT_REGULAR;
   description.fontSize = 12;

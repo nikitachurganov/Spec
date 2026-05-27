@@ -1,4 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginFrame, createPluginRectangle } from '../figma/pluginSceneNodes';
 
 import type { GapOrientation, PaddingValueAnchors, Rect } from './overlayGeometry';
 import { roundRect } from './overlayGeometry';
@@ -37,7 +38,7 @@ export type GapOverlayItemResult = {
 };
 
 function createZeroPointFrame(): FrameNode {
-  const frame = figma.createFrame();
+  const frame = createPluginFrame();
   frame.name = 'Zero point';
   frame.fills = [];
   frame.strokes = [];
@@ -52,7 +53,7 @@ async function createAbsoluteGapBorder(
   width: number,
   height: number
 ): Promise<RectangleNode> {
-  const line = figma.createRectangle();
+  const line = createPluginRectangle();
   line.name = name;
   line.resize(Math.max(1, Math.round(width)), Math.max(1, Math.round(height)));
   line.x = Math.round(x);
@@ -68,7 +69,7 @@ async function createAbsoluteGapBorder(
 }
 
 async function createGapMeasureFillFrame(): Promise<FrameNode> {
-  const frame = figma.createFrame();
+  const frame = createPluginFrame();
   frame.name = 'Gap measure fill';
   frame.fills = [];
   frame.strokes = [];
@@ -151,7 +152,7 @@ export async function createGapOverlayAutoLayout(
     ? paddingValues.top + SPACING_OVERLAY_LAYOUT.extraSize
     : paddingValues.left + SPACING_OVERLAY_LAYOUT.extraSize;
 
-  const overlay = figma.createFrame();
+  const overlay = createPluginFrame();
   overlay.name = `Gap overlay / ${index + 1}`;
   overlay.fills = [];
   overlay.strokes = [];

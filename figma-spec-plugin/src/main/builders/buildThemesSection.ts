@@ -1,12 +1,20 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginFrame, createPluginText } from '../figma/pluginSceneNodes';
 
 import type { PluginSettings } from '../../shared/settings';
 import { loadFontOnce } from '../figma/text';
+import { getRelativeVisualBounds } from '../figma/visualBounds';
 import { applySectionTitleTokens } from '../tokens/applyTokens';
 import { getSpecBuildStyleContext } from '../tokens/specStyleContext';
 import type { StyleResolver } from '../tokens/styleResolver';
-import { SPEC_TOKEN_MAP, hexToRgb, specColorFallbackRgb } from '../tokens/tokenMap';
-import { findThemeModes, type ThemeModeInfo } from '../tokens/themeModeResolver';
+import { hexToRgb } from '../tokens/tokenMap';
+import {
+  applyThemeVariableMode,
+  bindBackgroundPrimaryFill,
+  resolveThemeVariables,
+  type ThemeModeInfo,
+  warnOnce,
+} from '../tokens/themeModeResolver';
 
 /** Matches `Specification / …` inner width (1440 − 2×60 padding). */
 const SECTION_CONTENT_WIDTH = 1320;
@@ -24,9 +32,6 @@ const SECTION_TITLE = {
 };
 
 const FONT_REGULAR: FontName = { family: 'PT Sans', style: 'Regular' };
-
-let warnedThemeModesMissing = false;
-let warnedDarkModeApplyFailed = false;
 
 export type BuildThemesSectionParams = {
   rootNode: SceneNode;
@@ -55,10 +60,6 @@ type FrameOptions = {
   bottomRightRadius?: number;
 };
 
-type VariableModeCapableNode = SceneNode & {
-  setExplicitVariableModeForCollection?: (collectionId: string, modeId: string) => void;
-};
-
 function stretchInParent(node: SceneNode): void {
   if (!('layoutAlign' in node)) return;
   try {
@@ -78,7 +79,7 @@ function tryLayoutGrow(node: SceneNode, grow = 1): void {
 }
 
 function createFrame(name: string, options: FrameOptions = {}): FrameNode {
-  const frame = figma.createFrame();
+  const frame = createPluginFrame();
   frame.name = name;
   frame.layoutMode = options.layoutMode ?? 'VERTICAL';
   frame.primaryAxisSizingMode = options.primaryAxisSizingMode ?? 'AUTO';
@@ -112,7 +113,7 @@ function createFrame(name: string, options: FrameOptions = {}): FrameNode {
 
 async function createThemesSectionTitle(resolver: StyleResolver): Promise<TextNode> {
   await loadFontOnce(FONT_REGULAR);
-  const title = figma.createText();
+  const title = createPluginText();
   title.name = 'Themes title';
   title.fontName = FONT_REGULAR;
   title.fontSize = SECTION_TITLE.fontSize;
@@ -135,98 +136,33 @@ async function createThemesSectionTitle(resolver: StyleResolver): Promise<TextNo
   return title;
 }
 
-/**
- * Sets an explicit variable mode on the node (and its subtree) for the given
- * collection — used to switch a clone between light/dark themes.
- */
-function setExplicitVariableMode(
-  node: SceneNode,
-  collectionId: string,
-  modeId: string
-): boolean {
-  const capable = node as VariableModeCapableNode;
-  if (typeof capable.setExplicitVariableModeForCollection !== 'function') return false;
-  try {
-    capable.setExplicitVariableModeForCollection(collectionId, modeId);
-    return true;
-  } catch (error) {
-    console.warn('[Themes] setExplicitVariableModeForCollection failed on', node.name, error);
-    return false;
-  }
-}
-
-/**
- * Both panels (Light and Dark) MUST use the `Background/Primary` token.
- *
- * To produce the dark visual we keep the same token binding but set an explicit
- * dark variable mode on the panel. Figma re-resolves the bound variable per
- * node mode, so the same token renders white on the light panel and dark on
- * the dark panel.
- *
- * When the variable cannot be resolved or the matching theme mode is missing,
- * we fall back to hardcoded #F7F7F7 / #202020 fills.
- */
-async function applyPanelBackgroundPrimary(params: {
+function applyThemePanelBackground(params: {
   panel: FrameNode;
-  resolver: StyleResolver;
-  mode: 'light' | 'dark';
   themeInfo: ThemeModeInfo | null;
-}): Promise<void> {
-  const { panel, resolver, mode, themeInfo } = params;
-  const token = SPEC_TOKEN_MAP.colors.backgroundPrimary;
-  const tokenNames = [...token.names];
-  const tokenFallback = specColorFallbackRgb(token.fallback as Parameters<typeof specColorFallbackRgb>[0]);
-
-  const resolved = await resolver.resolveColor(tokenNames, tokenFallback);
-  const modeId =
-    mode === 'light' ? themeInfo?.lightModeId ?? null : themeInfo?.darkModeId ?? null;
-
-  const variableInThemeCollection =
-    !!resolved.variable &&
-    !!themeInfo &&
-    resolved.variable.variableCollectionId === themeInfo.collectionId;
-
-  // If we have the right variable AND the right mode, bind + pin mode.
-  if (resolved.variable && themeInfo && modeId && variableInThemeCollection) {
-    const modeApplied = setExplicitVariableMode(panel, themeInfo.collectionId, modeId);
-    try {
-      await resolver.applyFill(panel, tokenNames, tokenFallback);
-      if (modeApplied) return;
-    } catch (error) {
-      console.warn('[Themes] applyFill Background/Primary failed', error);
-    }
-  }
-
-  // Try plain token binding (will inherit page/parent mode for light, otherwise fallback).
-  if (mode === 'light') {
-    try {
-      await resolver.applyFill(panel, tokenNames, tokenFallback);
-      return;
-    } catch (error) {
-      console.warn('[Themes] light panel applyFill failed', error);
-    }
-    panel.fills = [{ type: 'SOLID', color: LIGHT_PANEL_FALLBACK }];
+  variant: 'light' | 'dark';
+}): void {
+  const fallbackColor = params.variant === 'light' ? LIGHT_PANEL_FALLBACK : DARK_PANEL_FALLBACK;
+  if (!params.themeInfo) {
+    params.panel.fills = [{ type: 'SOLID', color: fallbackColor }];
     return;
   }
 
-  // Dark mode — variable mode unavailable: use hardcoded dark fallback.
-  if (!warnedDarkModeApplyFailed) {
-    warnedDarkModeApplyFailed = true;
-    console.warn(
-      '[Themes] Could not apply dark variable mode. Using #202020 fallback for the dark panel.'
-    );
-  }
-  panel.fills = [{ type: 'SOLID', color: DARK_PANEL_FALLBACK }];
+  bindBackgroundPrimaryFill({
+    node: params.panel,
+    variable: params.themeInfo.backgroundPrimaryVariable,
+    fallbackColor,
+  });
 }
 
-function fitCloneIntoPanel(node: SceneNode, maxWidth: number, maxHeight: number): void {
-  if (node.width <= 0 || node.height <= 0) return;
-  const scale = Math.min(1, maxWidth / node.width, maxHeight / node.height);
+function fitCloneIntoPanel(clone: SceneNode, maxWidth: number, maxHeight: number): void {
+  if (clone.width <= 0 || clone.height <= 0) return;
+
+  const scale = Math.min(1, maxWidth / clone.width, maxHeight / clone.height);
   if (
     scale < 1 &&
-    typeof (node as SceneNode & { rescale?: (factor: number) => void }).rescale === 'function'
+    typeof (clone as SceneNode & { rescale?: (factor: number) => void }).rescale === 'function'
   ) {
-    (node as SceneNode & { rescale: (factor: number) => void }).rescale(scale);
+    (clone as SceneNode & { rescale: (factor: number) => void }).rescale(scale);
   }
 }
 
@@ -234,11 +170,43 @@ function isCloneableRoot(node: SceneNode): node is SceneNode & { clone: () => Sc
   return typeof (node as { clone?: () => SceneNode }).clone === 'function';
 }
 
+function placeCloneInsideThemePanel(params: {
+  panel: FrameNode;
+  clone: SceneNode;
+  sourceNode: SceneNode;
+}): void {
+  const { panel, clone, sourceNode } = params;
+  const { visualBounds, rootOffset } = getRelativeVisualBounds(sourceNode);
+  const offsetX = Math.round(rootOffset.x);
+  const offsetY = Math.round(rootOffset.y);
+  const needsAbsolutePlacement = offsetX !== 0 || offsetY !== 0;
+
+  const panelWidth = Math.max(1, Math.floor(SECTION_CONTENT_WIDTH / 2));
+  const maxW = Math.max(1, panelWidth - PANEL_PADDING * 2);
+  const maxH = Math.max(1, PREVIEW_ROW_HEIGHT - PANEL_PADDING * 2);
+  fitCloneIntoPanel(clone, maxW, maxH);
+
+  panel.appendChild(clone);
+
+  if (needsAbsolutePlacement && 'layoutPositioning' in clone) {
+    try {
+      (clone as SceneNode & LayoutMixin).layoutPositioning = 'ABSOLUTE';
+      clone.x = Math.max(0, Math.round((panel.width - visualBounds.width) / 2) + offsetX);
+      clone.y = Math.max(0, Math.round((panel.height - visualBounds.height) / 2) + offsetY);
+      return;
+    } catch (error) {
+      console.warn('[Themes] absolute clone placement failed', error);
+    }
+  }
+
+  clone.x = 0;
+  clone.y = 0;
+}
+
 async function createThemePreviewPanel(params: {
   panelName: string;
   previewName: string;
   rootNode: SceneNode;
-  resolver: StyleResolver;
   variant: 'light' | 'dark';
   cornerRadii: Pick<
     FrameOptions,
@@ -246,7 +214,7 @@ async function createThemePreviewPanel(params: {
   >;
   themeInfo: ThemeModeInfo | null;
 }): Promise<FrameNode> {
-  const { panelName, previewName, rootNode, resolver, variant, cornerRadii, themeInfo } = params;
+  const { panelName, previewName, rootNode, variant, cornerRadii, themeInfo } = params;
 
   const panel = createFrame(panelName, {
     layoutMode: 'HORIZONTAL',
@@ -260,11 +228,12 @@ async function createThemePreviewPanel(params: {
     paddingBottom: PANEL_PADDING,
     paddingLeft: PANEL_PADDING,
     layoutGrow: 1,
-    clipsContent: true,
+    clipsContent: false,
     ...cornerRadii,
   });
 
-  await applyPanelBackgroundPrimary({ panel, resolver, mode: variant, themeInfo });
+  applyThemePanelBackground({ panel, themeInfo, variant });
+  await applyThemeVariableMode(panel, variant === 'light' ? 'Light' : 'Dark');
 
   if (!isCloneableRoot(rootNode)) {
     throw new Error('[Themes] Selected node cannot be cloned.');
@@ -272,22 +241,8 @@ async function createThemePreviewPanel(params: {
 
   const clone = rootNode.clone();
   clone.name = previewName;
+  placeCloneInsideThemePanel({ panel, clone, sourceNode: rootNode });
 
-  const panelWidth = Math.max(1, Math.floor(SECTION_CONTENT_WIDTH / 2));
-  const maxW = Math.max(1, panelWidth - PANEL_PADDING * 2);
-  const maxH = Math.max(1, PREVIEW_ROW_HEIGHT - PANEL_PADDING * 2);
-  fitCloneIntoPanel(clone, maxW, maxH);
-
-  // Pin the same variable mode on the clone subtree so internal tokens follow.
-  if (themeInfo) {
-    const modeId =
-      variant === 'light' ? themeInfo.lightModeId ?? null : themeInfo.darkModeId ?? null;
-    if (modeId) {
-      setExplicitVariableMode(clone, themeInfo.collectionId, modeId);
-    }
-  }
-
-  panel.appendChild(clone);
   return panel;
 }
 
@@ -308,18 +263,22 @@ export async function buildThemesSection(params: BuildThemesSectionParams): Prom
 
   let themeInfo: ThemeModeInfo | null = null;
   try {
-    themeInfo = await findThemeModes();
-    if (!themeInfo && !warnedThemeModesMissing) {
-      warnedThemeModesMissing = true;
-      console.warn(
-        '[Themes] Theme modes were not found. Falling back to #F7F7F7 / #202020.'
+    const resolved = await resolveThemeVariables({
+      useLibrary: params.settings.useLibraryTokens !== false,
+    });
+    themeInfo = resolved.themeInfo;
+    if (!themeInfo) {
+      warnOnce(
+        'themes-build-fallback-panels',
+        '[Themes] Could not resolve Background/Primary collection Light/Dark modes. Falling back to #F7F7F7 / #202020.'
       );
     }
   } catch (error) {
-    if (!warnedThemeModesMissing) {
-      warnedThemeModesMissing = true;
-      console.warn('[Themes] findThemeModes failed:', error);
-    }
+    warnOnce(
+      'themes-build-resolver-failed',
+      '[Themes] resolveThemeVariables failed. Falling back to static panel colors:',
+      error
+    );
   }
 
   const section = createFrame('Themes section', {
@@ -348,7 +307,6 @@ export async function buildThemesSection(params: BuildThemesSectionParams): Prom
     panelName: 'Theme preview / Light',
     previewName: 'Preview / Light',
     rootNode,
-    resolver,
     variant: 'light',
     themeInfo,
     cornerRadii: {
@@ -363,7 +321,6 @@ export async function buildThemesSection(params: BuildThemesSectionParams): Prom
     panelName: 'Theme preview / Dark',
     previewName: 'Preview / Dark',
     rootNode,
-    resolver,
     variant: 'dark',
     themeInfo,
     cornerRadii: {

@@ -1,4 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginFrame, createPluginText } from '../figma/pluginSceneNodes';
 
 import { getNodeBoundsRelativeToRoot } from '../figma/nodeBounds';
 import { loadFontOnce } from '../figma/text';
@@ -51,7 +52,7 @@ const GAP_VALUE_SQUARE_OFFSET_Y = 24;
 const GAP_OVERLAY_SPACER = 20;
 
 function createZeroPointFrame(): FrameNode {
-  const frame = figma.createFrame();
+  const frame = createPluginFrame();
   frame.name = 'Zero point';
   frame.fills = [];
   frame.strokes = [];
@@ -136,7 +137,7 @@ function computeGapOverlayRect(params: GapOverlayItemParams): Rect {
 }
 
 async function createGapMeasureFill(bounds: Rect): Promise<FrameNode> {
-  const frame = figma.createFrame();
+  const frame = createPluginFrame();
   frame.name = 'Gap measure fill';
   frame.fills = [];
   frame.strokes = [];
@@ -163,7 +164,7 @@ function applyGapMeasureFillLayout(frame: FrameNode, isVerticalStrip: boolean): 
 }
 
 async function createGapValueSquare(valueLabel: string): Promise<FrameNode> {
-  const square = figma.createFrame();
+  const square = createPluginFrame();
   square.name = 'Gap value square';
   square.layoutMode = 'HORIZONTAL';
   square.primaryAxisAlignItems = 'CENTER';
@@ -183,7 +184,7 @@ async function createGapValueSquare(valueLabel: string): Promise<FrameNode> {
   await applyGapValueSquareFill(square);
 
   await loadFontOnce(FONT_REGULAR);
-  const text = figma.createText();
+  const text = createPluginText();
   text.name = 'Gap value text';
   text.fontName = FONT_REGULAR;
   text.fontSize = 12;
@@ -260,7 +261,7 @@ export async function createGapOverlayItem(params: GapOverlayItemParams): Promis
     overlayPaddingRight = Math.max(0, Math.round(params.paddingValues.right));
   }
 
-  const overlay = figma.createFrame();
+  const overlay = createPluginFrame();
   overlay.name = `Gap overlay / ${params.index + 1}`;
   overlay.layoutMode = isVerticalStrip ? 'VERTICAL' : 'HORIZONTAL';
   overlay.primaryAxisSizingMode = 'FIXED';

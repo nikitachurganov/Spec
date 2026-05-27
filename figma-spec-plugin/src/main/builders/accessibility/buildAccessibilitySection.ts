@@ -1,4 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginFrame, createPluginText } from '../../figma/pluginSceneNodes';
 
 import { applySemanticColorKey } from '../../tokens/applyTokens';
 import {
@@ -144,7 +145,7 @@ function applyActionTextFillWidth(actionText: TextNode): void {
 }
 
 function createFrame(name: string, options: FrameOptions = {}): FrameNode {
-  const frame = figma.createFrame();
+  const frame = createPluginFrame();
   frame.name = name;
   frame.layoutMode = options.layoutMode ?? 'VERTICAL';
   frame.primaryAxisSizingMode = options.primaryAxisSizingMode ?? 'AUTO';
@@ -274,7 +275,7 @@ async function createAccessibilityText(
   resolver: StyleResolver
 ): Promise<TextNode> {
   await loadFontOnce(options.fontName);
-  const node = figma.createText();
+  const node = createPluginText();
   node.name = options.name;
   node.fontName = options.fontName;
   node.fontSize = options.fontSize;
@@ -378,7 +379,7 @@ async function createScreenReadersListText(
   const styleDef = SPEC_TOKEN_MAP.textStyles.bulletedList;
   await loadFontOnce(FONT_REGULAR);
 
-  const node = figma.createText();
+  const node = createPluginText();
   node.name = 'Screen readers list text';
   node.characters = text.length === 0 ? ' ' : text;
   node.textAutoResize = 'WIDTH_AND_HEIGHT';

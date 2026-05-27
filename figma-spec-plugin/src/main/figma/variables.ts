@@ -12,8 +12,49 @@ export function formatPluginError(error: unknown): string {
   }
 }
 
+const warnedVariableKeys = new Set<string>();
+
+function warnOnce(key: string, message: string, ...args: unknown[]): void {
+  if (warnedVariableKeys.has(key)) return;
+  warnedVariableKeys.add(key);
+  console.warn(message, ...args);
+}
+
+let localVariablesCache: Variable[] | null = null;
+let localVariablesPromise: Promise<Variable[]> | null = null;
+
+let localCollectionsCache: VariableCollection[] | null = null;
+let localCollectionsPromise: Promise<VariableCollection[]> | null = null;
+
+let libraryCollectionsCache: LibraryVariableCollection[] | null = null;
+let libraryCollectionsPromise: Promise<LibraryVariableCollection[]> | null = null;
+
+const libraryVariablesByCollectionCache = new Map<string, LibraryVariable[]>();
+const libraryVariablesByCollectionPromise = new Map<string, Promise<LibraryVariable[]>>();
+
+const importedVariableByKeyCache = new Map<string, Variable | null>();
+const importedVariableByKeyPromise = new Map<string, Promise<Variable | null>>();
+
+export function resetVariableApiCaches(): void {
+  localVariablesCache = null;
+  localVariablesPromise = null;
+  localCollectionsCache = null;
+  localCollectionsPromise = null;
+  libraryCollectionsCache = null;
+  libraryCollectionsPromise = null;
+  libraryVariablesByCollectionCache.clear();
+  libraryVariablesByCollectionPromise.clear();
+  importedVariableByKeyCache.clear();
+  importedVariableByKeyPromise.clear();
+  warnedVariableKeys.clear();
+}
+
 /** Local variables: async first (required for dynamic-page), sync as fallback. */
 export async function getLocalVariablesSafe(): Promise<Variable[]> {
+  if (localVariablesCache) return localVariablesCache;
+  if (localVariablesPromise) return localVariablesPromise;
+
+  localVariablesPromise = (async () => {
   const api = figma.variables;
   if (!api) return [];
 
@@ -21,7 +62,11 @@ export async function getLocalVariablesSafe(): Promise<Variable[]> {
     try {
       return await api.getLocalVariablesAsync();
     } catch (error) {
-      console.warn('[Variables] getLocalVariablesAsync failed:', formatPluginError(error));
+      warnOnce(
+        'variables-local-async-failed',
+        '[Variables] getLocalVariablesAsync failed:',
+        formatPluginError(error)
+      );
     }
   }
 
@@ -29,15 +74,31 @@ export async function getLocalVariablesSafe(): Promise<Variable[]> {
     try {
       return api.getLocalVariables();
     } catch (error) {
-      console.warn('[Variables] getLocalVariables failed:', formatPluginError(error));
+      warnOnce(
+        'variables-local-sync-failed',
+        '[Variables] getLocalVariables failed:',
+        formatPluginError(error)
+      );
     }
   }
 
   return [];
+  })();
+
+  try {
+    localVariablesCache = await localVariablesPromise;
+    return localVariablesCache;
+  } finally {
+    localVariablesPromise = null;
+  }
 }
 
 /** Local variable collections: async first. */
 export async function getLocalVariableCollectionsSafe(): Promise<VariableCollection[]> {
+  if (localCollectionsCache) return localCollectionsCache;
+  if (localCollectionsPromise) return localCollectionsPromise;
+
+  localCollectionsPromise = (async () => {
   const api = figma.variables;
   if (!api) return [];
 
@@ -45,7 +106,8 @@ export async function getLocalVariableCollectionsSafe(): Promise<VariableCollect
     try {
       return await api.getLocalVariableCollectionsAsync();
     } catch (error) {
-      console.warn(
+      warnOnce(
+        'variables-local-collections-async-failed',
         '[Variables] getLocalVariableCollectionsAsync failed:',
         formatPluginError(error)
       );
@@ -56,11 +118,23 @@ export async function getLocalVariableCollectionsSafe(): Promise<VariableCollect
     try {
       return api.getLocalVariableCollections();
     } catch (error) {
-      console.warn('[Variables] getLocalVariableCollections failed:', formatPluginError(error));
+      warnOnce(
+        'variables-local-collections-sync-failed',
+        '[Variables] getLocalVariableCollections failed:',
+        formatPluginError(error)
+      );
     }
   }
 
   return [];
+  })();
+
+  try {
+    localCollectionsCache = await localCollectionsPromise;
+    return localCollectionsCache;
+  } finally {
+    localCollectionsPromise = null;
+  }
 }
 
 export function getVariableNumericValue(
@@ -104,12 +178,17 @@ type LibraryVariablesApi = {
 
 /** Library variable collections from `figma.variables` or `figma.teamLibrary`. */
 export async function getLibraryVariableCollectionsSafe(): Promise<LibraryVariableCollection[]> {
+  if (libraryCollectionsCache) return libraryCollectionsCache;
+  if (libraryCollectionsPromise) return libraryCollectionsPromise;
+
+  libraryCollectionsPromise = (async () => {
   const variablesApi = figma.variables as typeof figma.variables & LibraryVariablesApi;
   if (typeof variablesApi.getAvailableLibraryVariableCollectionsAsync === 'function') {
     try {
       return await variablesApi.getAvailableLibraryVariableCollectionsAsync();
     } catch (error) {
-      console.warn(
+      warnOnce(
+        'variables-api-library-collections-failed',
         '[Variables] variables.getAvailableLibraryVariableCollectionsAsync failed:',
         formatPluginError(error)
       );
@@ -121,7 +200,8 @@ export async function getLibraryVariableCollectionsSafe(): Promise<LibraryVariab
     try {
       return await team.getAvailableLibraryVariableCollectionsAsync();
     } catch (error) {
-      console.warn(
+      warnOnce(
+        'variables-team-library-collections-failed',
         '[Variables] teamLibrary.getAvailableLibraryVariableCollectionsAsync failed:',
         formatPluginError(error)
       );
@@ -129,17 +209,33 @@ export async function getLibraryVariableCollectionsSafe(): Promise<LibraryVariab
   }
 
   return [];
+  })();
+
+  try {
+    libraryCollectionsCache = await libraryCollectionsPromise;
+    return libraryCollectionsCache;
+  } finally {
+    libraryCollectionsPromise = null;
+  }
 }
 
 export async function getVariablesInLibraryCollectionSafe(
   collectionKey: string
 ): Promise<LibraryVariable[]> {
+  if (!collectionKey) return [];
+  const cached = libraryVariablesByCollectionCache.get(collectionKey);
+  if (cached) return cached;
+  const pending = libraryVariablesByCollectionPromise.get(collectionKey);
+  if (pending) return pending;
+
+  const request = (async () => {
   const variablesApi = figma.variables as typeof figma.variables & LibraryVariablesApi;
   if (typeof variablesApi.getVariablesInLibraryCollectionAsync === 'function') {
     try {
       return await variablesApi.getVariablesInLibraryCollectionAsync(collectionKey);
     } catch (error) {
-      console.warn(
+      warnOnce(
+        `variables-api-library-variables-failed:${collectionKey}`,
         '[Variables] variables.getVariablesInLibraryCollectionAsync failed:',
         formatPluginError(error)
       );
@@ -151,7 +247,8 @@ export async function getVariablesInLibraryCollectionSafe(
     try {
       return await team.getVariablesInLibraryCollectionAsync(collectionKey);
     } catch (error) {
-      console.warn(
+      warnOnce(
+        `variables-team-library-variables-failed:${collectionKey}`,
         '[Variables] teamLibrary.getVariablesInLibraryCollectionAsync failed:',
         formatPluginError(error)
       );
@@ -159,6 +256,54 @@ export async function getVariablesInLibraryCollectionSafe(
   }
 
   return [];
+  })();
+
+  libraryVariablesByCollectionPromise.set(collectionKey, request);
+  try {
+    const values = await request;
+    libraryVariablesByCollectionCache.set(collectionKey, values);
+    return values;
+  } finally {
+    libraryVariablesByCollectionPromise.delete(collectionKey);
+  }
+}
+
+export async function importVariableByKeySafe(variableKey: string): Promise<Variable | null> {
+  if (!variableKey) return null;
+  if (importedVariableByKeyCache.has(variableKey)) {
+    return importedVariableByKeyCache.get(variableKey) ?? null;
+  }
+  const pending = importedVariableByKeyPromise.get(variableKey);
+  if (pending) return pending;
+
+  const request = (async () => {
+    if (typeof figma.variables?.importVariableByKeyAsync !== 'function') {
+      warnOnce(
+        'variables-import-by-key-unavailable',
+        '[Variables] importVariableByKeyAsync is unavailable.'
+      );
+      return null;
+    }
+    try {
+      return await figma.variables.importVariableByKeyAsync(variableKey);
+    } catch (error) {
+      warnOnce(
+        `variables-import-by-key-failed:${variableKey}`,
+        '[Variables] importVariableByKeyAsync failed:',
+        formatPluginError(error)
+      );
+      return null;
+    }
+  })();
+
+  importedVariableByKeyPromise.set(variableKey, request);
+  try {
+    const value = await request;
+    importedVariableByKeyCache.set(variableKey, value);
+    return value;
+  } finally {
+    importedVariableByKeyPromise.delete(variableKey);
+  }
 }
 
 export type ResolvedVariableById = {
@@ -205,12 +350,8 @@ export async function initVariableByIdRegistry(): Promise<void> {
     for (const collection of collections) {
       const libVars = await getVariablesInLibraryCollectionSafe(collection.key);
       for (const libVar of libVars) {
-        try {
-          const imported = await figma.variables.importVariableByKeyAsync(libVar.key);
-          registerVariableInIdRegistry(imported, libVar.key);
-        } catch {
-          /* library variable may be unavailable */
-        }
+        const imported = await importVariableByKeySafe(libVar.key);
+        if (imported) registerVariableInIdRegistry(imported, libVar.key);
       }
     }
 

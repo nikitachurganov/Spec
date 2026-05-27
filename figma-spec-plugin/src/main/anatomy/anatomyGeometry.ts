@@ -1,4 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginFrame, createPluginRectangle, createPluginVector } from '../figma/pluginSceneNodes';
 
 import type {
   AnatomyBounds,
@@ -58,7 +59,7 @@ export function createAnatomyConnector(params: {
   length: number;
   color: RGB;
 }): RectangleNode {
-  const connector = figma.createRectangle();
+  const connector = createPluginRectangle();
   connector.name = params.name;
   const safeLength = Math.max(1, Math.round(params.length));
 
@@ -77,7 +78,7 @@ export function createAnatomyConnector(params: {
 }
 
 function createDiagonalConnector(name: string, color: RGB, from: { x: number; y: number }, to: { x: number; y: number }): VectorNode {
-  const vector = figma.createVector();
+  const vector = createPluginVector();
   vector.name = name;
   vector.vectorPaths = [
     {
@@ -509,20 +510,22 @@ export function calculatePointerPlacements(
   rootBoundsInPreview: AnatomyRect,
   markerSize: number,
   markerOffset: number,
-  _selectedNode?: SceneNode
+  _selectedNode?: SceneNode,
+  contentBoundsInPreview?: AnatomyRect
 ): AnatomyPointerPlacement[] {
   if (items.length === 0) return [];
 
   const markerSafeArea = markerSize + markerOffset + 8;
   const rightColumnExtent = ANATOMY_POINTER_RIGHT_OFFSET + markerSize + 8;
+  const contentBounds = contentBoundsInPreview ?? rootBoundsInPreview;
 
   // Preview group (= "canvas" for pointer geometry) — mirrors the size
   // calculated by anatomyGenerator.createAnatomyFrame().
   const canvasBounds: AnatomyRect = {
     x: 0,
     y: 0,
-    width: rootBoundsInPreview.x + rootBoundsInPreview.width + rightColumnExtent,
-    height: rootBoundsInPreview.y + rootBoundsInPreview.height + markerSafeArea,
+    width: contentBounds.x + contentBounds.width + rightColumnExtent,
+    height: contentBounds.y + contentBounds.height + markerSafeArea,
   };
 
   return layoutLShapedAnatomyPointers({
@@ -597,7 +600,7 @@ export function createAnatomyConnectorFrame(
   segments: AnatomyConnectorSegment[],
   color: RGB
 ): FrameNode {
-  const connectorFrame = figma.createFrame();
+  const connectorFrame = createPluginFrame();
   connectorFrame.name = `Anatomy connector / ${index}`;
   connectorFrame.layoutMode = 'NONE';
   connectorFrame.fills = [];

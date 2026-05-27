@@ -1,4 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginFrame, createPluginText } from '../figma/pluginSceneNodes';
 
 import {
   collectSemanticAnatomyItems,
@@ -10,7 +11,7 @@ import {
   getDefaultConnectorColor,
   getPointerFrameBounds,
 } from './anatomyGeometry';
-import type { AnatomyGeneratorOptions, AnatomyItem, AnatomyPointerPlacement } from './anatomyTypes';
+import type { AnatomyGeneratorOptions, AnatomyItem, AnatomyPointerPlacement, AnatomyRect } from './anatomyTypes';
 import {
   ANATOMY_LAYOUT,
   ANATOMY_COLORS,
@@ -19,6 +20,7 @@ import {
   mergeAnatomyOptions,
 } from './anatomyStyles';
 import { getSpecBuildStyleContext } from '../tokens/specStyleContext';
+import { getRelativeVisualBounds } from '../figma/visualBounds';
 
 async function applyAnatomyMarkerTextInverse(textNode: TextNode): Promise<void> {
   const ctx = getSpecBuildStyleContext();
@@ -53,7 +55,7 @@ function createAnatomyText(
     width?: number;
   }
 ): TextNode {
-  const t = figma.createText();
+  const t = createPluginText();
   t.name = opts.name;
   t.fontName = opts.fontName;
   t.fontSize = opts.fontSize;
@@ -76,7 +78,7 @@ async function createMarker(
   markerLabel: string,
   options: ReturnType<typeof mergeAnatomyOptions>
 ): Promise<FrameNode> {
-  const frame = figma.createFrame();
+  const frame = createPluginFrame();
   frame.name = `Anatomy marker / ${markerLabel}`;
   frame.layoutMode = 'HORIZONTAL';
   frame.primaryAxisAlignItems = 'CENTER';
@@ -132,7 +134,7 @@ async function createAnatomyPointer(
   const bounds = getPointerFrameBounds(placement, markerSize);
   const connectorColor = options.connectorColor || getDefaultConnectorColor();
 
-  const pointer = figma.createFrame();
+  const pointer = createPluginFrame();
   pointer.name = `Anatomy pointer / ${markerLabel}`;
   pointer.layoutMode = 'NONE';
   pointer.fills = [];
@@ -172,7 +174,7 @@ async function createAnatomyListRow(
   item: AnatomyItem,
   options: ReturnType<typeof mergeAnatomyOptions>
 ): Promise<FrameNode> {
-  const row = figma.createFrame();
+  const row = createPluginFrame();
   row.name = `Anatomy list item / ${item.markerIndex}`;
   row.layoutMode = 'HORIZONTAL';
   row.primaryAxisAlignItems = 'MIN';
@@ -218,7 +220,7 @@ async function createAnatomyList(
   items: AnatomyItem[],
   options: ReturnType<typeof mergeAnatomyOptions>
 ): Promise<FrameNode> {
-  const list = figma.createFrame();
+  const list = createPluginFrame();
   list.name = 'Anatomy list';
   list.layoutMode = 'VERTICAL';
   list.itemSpacing = 12;
@@ -277,6 +279,11 @@ async function createAnatomyFrame(params: CreateAnatomyFrameParams): Promise<Fra
   }
 
   const items = collectSemanticAnatomyItems(rootClone, merged);
+  const { visualBounds, rootOffset } = getRelativeVisualBounds(rootClone);
+  const offsetX = Math.round(rootOffset.x);
+  const offsetY = Math.round(rootOffset.y);
+  const visualWidth = Math.max(1, Math.round(visualBounds.width));
+  const visualHeight = Math.max(1, Math.round(visualBounds.height));
 
   const fp = merged.framePadding;
   const listGap = merged.listGap;
@@ -288,27 +295,33 @@ async function createAnatomyFrame(params: CreateAnatomyFrameParams): Promise<Fra
   const markerSafeArea = markerSize + markerOffset + 8;
   const rightColumnExtent = ANATOMY_POINTER_RIGHT_OFFSET + markerSize + 8;
 
-  const previewGroup = figma.createFrame();
+  const previewGroup = createPluginFrame();
   previewGroup.name = 'Anatomy preview group';
   previewGroup.layoutMode = 'NONE';
   previewGroup.fills = [];
   previewGroup.strokes = [];
   previewGroup.clipsContent = false;
   previewGroup.resize(
-    Math.max(1, Math.round(cw + markerSafeArea + rightColumnExtent)),
-    Math.max(1, Math.round(ch + markerSafeArea * 2))
+    Math.max(1, Math.round(markerSafeArea + visualWidth + rightColumnExtent)),
+    Math.max(1, Math.round(markerSafeArea + visualHeight + markerSafeArea))
   );
 
-  rootClone.x = markerSafeArea;
-  rootClone.y = markerSafeArea;
+  rootClone.x = markerSafeArea + offsetX;
+  rootClone.y = markerSafeArea + offsetY;
   previewGroup.appendChild(rootClone);
 
-  const rootBoundsRelative = { x: 0, y: 0, width: cw, height: ch };
-  const rootBoundsInPreview = {
+  const rootBoundsRelative: AnatomyRect = { x: 0, y: 0, width: cw, height: ch };
+  const rootBoundsInPreview: AnatomyRect = {
     x: rootClone.x,
     y: rootClone.y,
     width: rootClone.width,
     height: rootClone.height,
+  };
+  const contentBoundsInPreview: AnatomyRect = {
+    x: markerSafeArea,
+    y: markerSafeArea,
+    width: visualWidth,
+    height: visualHeight,
   };
 
   const placements = calculatePointerPlacements(
@@ -317,7 +330,8 @@ async function createAnatomyFrame(params: CreateAnatomyFrameParams): Promise<Fra
     rootBoundsInPreview,
     markerSize,
     markerOffset,
-    rootClone
+    rootClone,
+    contentBoundsInPreview
   );
 
   for (const placement of placements) {
@@ -326,7 +340,7 @@ async function createAnatomyFrame(params: CreateAnatomyFrameParams): Promise<Fra
 
   const list = await createAnatomyList(items, merged);
 
-  const anatomyFrame = figma.createFrame();
+  const anatomyFrame = createPluginFrame();
   anatomyFrame.name = title;
   anatomyFrame.layoutMode = 'NONE';
   anatomyFrame.clipsContent = false;
@@ -343,7 +357,7 @@ async function createAnatomyFrame(params: CreateAnatomyFrameParams): Promise<Fra
   previewGroup.y = fp;
   anatomyFrame.appendChild(previewGroup);
 
-  list.x = fp + markerSafeArea + cw + listGap;
+  list.x = fp + markerSafeArea + visualWidth + listGap;
   list.y = fp + Math.max(0, (previewGroup.height - list.height) / 2);
   anatomyFrame.appendChild(list);
 

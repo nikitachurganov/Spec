@@ -1,4 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginFrame, createPluginText } from '../figma/pluginSceneNodes';
 
 import { ensureDocumentReadyForTraversal } from '../figma/documentAccess';
 import { applyParagraphFontFamilyToken } from '../tokens/applyTokens';
@@ -70,7 +71,7 @@ function tryStretchInAutoLayout(node: SceneNode): void {
 async function appendHeaderComponentNotFoundFallback(wrapper: FrameNode): Promise<void> {
   try {
     await figma.loadFontAsync(HEADER_FALLBACK_FONT);
-    const fallback = figma.createText();
+    const fallback = createPluginText();
     fallback.name = 'Header fallback';
     fallback.characters = 'Header component not found: .DS-Template-header/Default';
     fallback.fontName = HEADER_FALLBACK_FONT;
@@ -103,7 +104,7 @@ export async function createSpecificationWrapper(
   options?: SpecificationWrapperOptions
 ): Promise<FrameNode> {
   const includeHeader = options?.includeHeader !== false;
-  const wrapper = figma.createFrame();
+  const wrapper = createPluginFrame();
 
   wrapper.name = `DS specification / ${rootName}`;
   wrapper.layoutMode = 'VERTICAL';

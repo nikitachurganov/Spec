@@ -1,9 +1,11 @@
 /// <reference types="@figma/plugin-typings" />
+import { createPluginFrame, createPluginText } from '../figma/pluginSceneNodes';
 
 import type { StyleResolver } from '../tokens/styleResolver';
 import { SPEC_TOKEN_MAP, specColorFallbackRgb } from '../tokens/tokenMap';
 import { getNodeByIdSafeAsync } from '../figma/documentAccess';
 import { getNodeBoundsRelativeToRoot } from '../figma/nodeBounds';
+import { getRelativeVisualBounds } from '../figma/visualBounds';
 import { getNodeByPath, getNodePathFromRoot } from '../figma/nodePath';
 import { createChildOverlaysForTarget } from '../overlays/childOverlay';
 import { createGapOverlaysForTarget } from '../overlays/gapOverlay';
@@ -76,14 +78,14 @@ async function createPreviewUnavailableWrap(
   message: string,
   width?: number
 ): Promise<FrameNode> {
-  const wrap = figma.createFrame();
+  const wrap = createPluginFrame();
   wrap.name = 'Preview wrapper';
   wrap.layoutMode = 'VERTICAL';
   wrap.fills = [];
   wrap.clipsContent = false;
 
   await loadFontOnce(FONT_REGULAR);
-  const text = figma.createText();
+  const text = createPluginText();
   text.name = 'Preview unavailable';
   text.fontName = FONT_REGULAR;
   text.fontSize = 12;
@@ -99,7 +101,7 @@ async function createPreviewUnavailableWrap(
 }
 
 function createPreviewWrapper(width: number, height: number): FrameNode {
-  const wrapper = figma.createFrame();
+  const wrapper = createPluginFrame();
   wrapper.name = 'Preview wrapper';
   wrapper.layoutMode = 'NONE';
   wrapper.clipsContent = false;
@@ -110,7 +112,7 @@ function createPreviewWrapper(width: number, height: number): FrameNode {
 }
 
 function createOverlayContainer(width: number, height: number): FrameNode {
-  const container = figma.createFrame();
+  const container = createPluginFrame();
   container.name = 'Overlay container';
   container.layoutMode = 'NONE';
   container.clipsContent = false;
@@ -155,6 +157,7 @@ export async function createPaddingVisualization(
 
   const targetPath = getNodePathFromRoot(rootSourceNode, originalTargetNode);
   const targetDisplayName = originalTargetNode.name || rootSourceNode.name || 'Component';
+  const { visualBounds, rootOffset } = getRelativeVisualBounds(rootSourceNode);
 
   let rootClone: SceneNode;
   try {
@@ -171,26 +174,29 @@ export async function createPaddingVisualization(
     if (resolved) targetCloneNode = resolved;
   }
 
+  const offsetX = Math.round(rootOffset.x);
+  const offsetY = Math.round(rootOffset.y);
+
   let targetBounds: Rect;
   if (targetCloneNode.id === rootClone.id) {
     targetBounds = roundRect({
-      x: 0,
-      y: 0,
+      x: offsetX,
+      y: offsetY,
       width: rootClone.width,
       height: rootClone.height,
     });
   } else {
     const rel = getNodeBoundsRelativeToRoot(targetCloneNode, rootClone);
     targetBounds = roundRect({
-      x: rel.x,
-      y: rel.y,
+      x: rel.x + offsetX,
+      y: rel.y + offsetY,
       width: rel.width,
       height: rel.height,
     });
   }
 
-  const cw = Math.max(1, Math.round(rootClone.width));
-  const ch = Math.max(1, Math.round(rootClone.height));
+  const cw = Math.max(1, Math.round(visualBounds.width));
+  const ch = Math.max(1, Math.round(visualBounds.height));
 
   const targetX = targetBounds.x;
   const targetY = targetBounds.y;
@@ -241,8 +247,8 @@ export async function createPaddingVisualization(
     containerLayoutDirection,
   };
 
-  rootClone.x = 0;
-  rootClone.y = 0;
+  rootClone.x = offsetX;
+  rootClone.y = offsetY;
 
   const previewWrapper = createPreviewWrapper(cw, ch);
   previewWrapper.appendChild(rootClone);

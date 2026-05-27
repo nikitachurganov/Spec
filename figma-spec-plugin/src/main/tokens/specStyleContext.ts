@@ -9,6 +9,8 @@ export const SPEC_BUILD_STYLE_CONTEXT_KEY = '__SPEC_BUILD_STYLE_CONTEXT_V1__';
 
 export type SpecBuildStyleContext = {
   resolver: StyleResolver;
+  /** Temporary page for atomic builds; plugin nodes are appended here instead of currentPage. */
+  stagingPage?: PageNode;
   /** Имена spacing-токенов для текста Padding/Gap (библиотека + fallback). */
   spacingTokenResolver?: SpacingTokenResolver;
   apply: {
@@ -49,4 +51,11 @@ export function getSpecBuildStyleContext(): SpecBuildStyleContext | undefined {
   return (globalThis as unknown as Record<string, SpecBuildStyleContext | undefined>)[
     SPEC_BUILD_STYLE_CONTEXT_KEY
   ];
+}
+
+export function attachNodeToActiveStagingPage(node: BaseNode): void {
+  const stagingPage = getSpecBuildStyleContext()?.stagingPage;
+  if (!stagingPage || stagingPage.removed || node.type === 'PAGE') return;
+  if (node.parent === stagingPage) return;
+  stagingPage.appendChild(node as SceneNode);
 }
