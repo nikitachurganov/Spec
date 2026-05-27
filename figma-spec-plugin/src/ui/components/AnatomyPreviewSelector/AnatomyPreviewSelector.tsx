@@ -8,10 +8,17 @@ import {
 import type { AnatomyPreviewHotspot, AnatomyPreviewPayload } from '@shared/anatomyPreview';
 import styles from './AnatomyPreviewSelector.module.css';
 
+const DEBUG_PREVIEW_COORDS = false;
+
 export type AnatomyPreviewSelectorProps = {
   payload: AnatomyPreviewPayload | null;
   selectedPaths: string[];
   onSelectedPathsChange: (paths: string[]) => void;
+  purpose?: 'anatomy' | 'spec';
+  title?: string;
+  showTitle?: boolean;
+  selectedCountLabel?: string;
+  fallbackText?: string;
 };
 
 type InteractionState = {
@@ -35,7 +42,13 @@ function area(spot: AnatomyPreviewHotspot): number {
   return Math.max(1, spot.bounds.width * spot.bounds.height);
 }
 
-function kindPriority(kind: AnatomyPreviewHotspot['kind']): number {
+function kindPriority(kind: AnatomyPreviewHotspot['kind'], purpose: 'anatomy' | 'spec'): number {
+  if (purpose === 'spec') {
+    if (kind === 'container') return 0;
+    if (kind === 'component' || kind === 'instance') return 1;
+    if (kind === 'root') return 99;
+    return 50;
+  }
   if (kind === 'text') return 0;
   if (kind === 'action') return 1;
   if (kind === 'icon') return 2;
@@ -67,7 +80,11 @@ function isEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
-function sortCandidates(candidates: AnatomyPreviewHotspot[], selectedSet: Set<string>): AnatomyPreviewHotspot[] {
+function sortCandidates(
+  candidates: AnatomyPreviewHotspot[],
+  selectedSet: Set<string>,
+  purpose: 'anatomy' | 'spec'
+): AnatomyPreviewHotspot[] {
   return [...candidates].sort((a, b) => {
     const selectedWeight = Number(selectedSet.has(b.path)) - Number(selectedSet.has(a.path));
     if (selectedWeight !== 0) return selectedWeight;
@@ -75,7 +92,7 @@ function sortCandidates(candidates: AnatomyPreviewHotspot[], selectedSet: Set<st
     if (areaDiff !== 0) return areaDiff;
     const depthDiff = b.depth - a.depth;
     if (depthDiff !== 0) return depthDiff;
-    const kindDiff = kindPriority(a.kind) - kindPriority(b.kind);
+    const kindDiff = kindPriority(a.kind, purpose) - kindPriority(b.kind, purpose);
     if (kindDiff !== 0) return kindDiff;
     return a.path.localeCompare(b.path);
   });
@@ -85,6 +102,11 @@ export function AnatomyPreviewSelector({
   payload,
   selectedPaths,
   onSelectedPathsChange,
+  purpose = 'anatomy',
+  title = 'Превью',
+  showTitle = true,
+  selectedCountLabel,
+  fallbackText = 'Preview is unavailable. Use the layer tree to select items.',
 }: AnatomyPreviewSelectorProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const interactionRef = useRef<InteractionState | null>(null);
@@ -161,18 +183,10 @@ export function AnatomyPreviewSelector({
     };
   }, [previewHovered, isPanning]);
 
-  if (!payload || !payload.imageDataUrl) {
-    return (
-      <div className={styles.root}>
-        <p className={styles.fallback}>
-          Preview is unavailable. Use the layer tree to select Anatomy items.
-        </p>
-      </div>
-    );
-  }
   const previewPayload = payload;
 
   function fitToViewport() {
+    if (!previewPayload || !previewPayload.imageDataUrl) return;
     if (!viewportWidth || !viewportHeight) return;
     const sx = viewportWidth / Math.max(1, previewPayload.imageWidth);
     const sy = viewportHeight / Math.max(1, previewPayload.imageHeight);
@@ -189,7 +203,14 @@ export function AnatomyPreviewSelector({
   useEffect(() => {
     if (fitMode) fitToViewport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitMode, viewportWidth, viewportHeight, previewPayload.imageWidth, previewPayload.imageHeight]);
+  }, [
+    fitMode,
+    viewportWidth,
+    viewportHeight,
+    previewPayload?.imageWidth,
+    previewPayload?.imageHeight,
+    previewPayload?.imageDataUrl,
+  ]);
 
   const effectiveScale = scale;
 
@@ -205,7 +226,7 @@ export function AnatomyPreviewSelector({
     const x = (clientX - rect.left - pan.x) / effectiveScale;
     const y = (clientY - rect.top - pan.y) / effectiveScale;
     const hits = selectableHotspots.filter((spot) => containsPoint(spot, x, y));
-    return sortCandidates(hits, selectedSet);
+    return sortCandidates(hits, selectedSet, purpose);
   }
 
   function zoomAroundClient(clientX: number, clientY: number, nextScaleRaw: number) {
@@ -330,10 +351,20 @@ export function AnatomyPreviewSelector({
     };
   }, []);
 
+  if (!previewPayload || !previewPayload.imageDataUrl) {
+    return (
+      <div className={styles.root}>
+        <p className={styles.fallback}>{fallbackText}</p>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.root}>
       <div className={styles.header}>
-        <h4 className={styles.headerTitle}>Превью</h4>
+        <h4 className={styles.headerTitle}>
+          {selectedCountLabel || (showTitle ? title : '')}
+        </h4>
         <div className={styles.controls}>
           <button
             type="button"
@@ -386,33 +417,23 @@ export function AnatomyPreviewSelector({
           <div
             className={styles.canvas}
             style={{
-                width: `${previewPayload.imageWidth}px`,
-                height: `${previewPayload.imageHeight}px`,
+              width: `${previewPayload.imageWidth}px`,
+              height: `${previewPayload.imageHeight}px`,
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
               transformOrigin: '0 0',
             }}
           >
             <img
-                src={previewPayload.imageDataUrl}
+              src={previewPayload.imageDataUrl}
               alt="Anatomy preview"
               className={styles.image}
               draggable={false}
-                style={{
-                  width: `${previewPayload.imageWidth}px`,
-                  height: `${previewPayload.imageHeight}px`,
-                }}
-            />
-            <div
-              className={`${styles.overlay} ${isPanning ? styles.overlayPanning : ''}`}
-              onPointerMove={onOverlayPointerMove}
-              onMouseLeave={() => setHoveredPath(null)}
-              onPointerDown={onOverlayPointerDown}
-              onPointerUp={onOverlayPointerUp}
-              onPointerCancel={onOverlayPointerCancel}
               style={{
-                cursor: isPanning ? 'grabbing' : spacePressed ? 'grab' : hoveredPath ? 'pointer' : 'default',
+                width: `${previewPayload.imageWidth}px`,
+                height: `${previewPayload.imageHeight}px`,
               }}
-            >
+            />
+            <div className={styles.hotspotLayer}>
               {selectableHotspots.map((spot) => {
                 const left = spot.bounds.x;
                 const top = spot.bounds.y;
@@ -439,6 +460,27 @@ export function AnatomyPreviewSelector({
                 );
               })}
             </div>
+            <div
+              className={`${styles.overlay} ${isPanning ? styles.overlayPanning : ''}`}
+              onPointerMove={onOverlayPointerMove}
+              onMouseLeave={() => setHoveredPath(null)}
+              onPointerDown={onOverlayPointerDown}
+              onPointerUp={onOverlayPointerUp}
+              onPointerCancel={onOverlayPointerCancel}
+              style={{
+                cursor: isPanning ? 'grabbing' : spacePressed ? 'grab' : hoveredPath ? 'pointer' : 'default',
+              }}
+            />
+            {DEBUG_PREVIEW_COORDS ? (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  outline: '1px solid rgba(0, 120, 255, 0.65)',
+                  pointerEvents: 'none',
+                }}
+              />
+            ) : null}
           </div>
         </div>
       </div>

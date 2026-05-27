@@ -40,11 +40,41 @@ export type HandleSpecLayerOptionsResult =
       specSelectedLayerPaths: string[];
       anatomySelectedLayerPaths: string[];
       autoSelectedLayerPaths: string[];
+      specPreviewPayload: AnatomyPreviewPayload | null;
       anatomyPreviewPayload: AnatomyPreviewPayload | null;
     }
   | { ok: false; message: string };
 
 const anatomyPreviewCacheByRootId = new Map<string, AnatomyPreviewPayload>();
+const specPreviewCacheByRootId = new Map<string, AnatomyPreviewPayload>();
+
+function shouldIncludeSpecHotspot(kind: string, isRoot: boolean): boolean {
+  if (isRoot) return true;
+  return kind === 'component' || kind === 'instance' || kind === 'container';
+}
+
+function buildSpecPreviewPayloadFromAnatomy(params: {
+  base: AnatomyPreviewPayload;
+  options: CollectSpecLayerOptionsResult['options'];
+}): AnatomyPreviewPayload {
+  const optionByPath = new Map(params.options.map((option) => [option.path, option]));
+  const specHotspots = params.base.hotspots
+    .filter((spot) => shouldIncludeSpecHotspot(spot.kind, spot.isRoot))
+    .map((spot) => {
+      const option = optionByPath.get(spot.path);
+      return {
+        ...spot,
+        selectable: Boolean(option?.isSelectable && !option?.isText),
+      };
+    });
+  return {
+    imageDataUrl: params.base.imageDataUrl,
+    imageWidth: params.base.imageWidth,
+    imageHeight: params.base.imageHeight,
+    coordinateSpace: params.base.coordinateSpace,
+    hotspots: specHotspots,
+  };
+}
 
 export async function handleGetSpecLayerOptions(
   settings: PluginSettings,
@@ -94,21 +124,31 @@ export async function handleGetSpecLayerOptions(
   );
 
   let anatomyPreviewPayload: AnatomyPreviewPayload | null = null;
+  let specPreviewPayload: AnatomyPreviewPayload | null = null;
   try {
     const cached = anatomyPreviewCacheByRootId.get(root.id);
-    if (cached) {
+    const cachedSpec = specPreviewCacheByRootId.get(root.id);
+    if (cached && cachedSpec) {
       anatomyPreviewPayload = cached;
+      specPreviewPayload = cachedSpec;
     } else {
       const built = await buildAnatomyPreviewPayload({
         rootNode: root,
         decomposition: collected.decomposition,
       });
+      const builtSpec = buildSpecPreviewPayloadFromAnatomy({
+        base: built,
+        options: collected.options,
+      });
       anatomyPreviewCacheByRootId.set(root.id, built);
+      specPreviewCacheByRootId.set(root.id, builtSpec);
       anatomyPreviewPayload = built;
+      specPreviewPayload = builtSpec;
     }
   } catch (error) {
     console.warn('[Anatomy Preview] Failed to build preview payload', error);
     anatomyPreviewPayload = null;
+    specPreviewPayload = null;
   }
 
   return {
@@ -119,6 +159,7 @@ export async function handleGetSpecLayerOptions(
     specSelectedLayerPaths: selectedLayerPaths,
     anatomySelectedLayerPaths,
     autoSelectedLayerPaths: collected.autoSelectedLayerPaths,
+    specPreviewPayload,
     anatomyPreviewPayload,
   };
 }

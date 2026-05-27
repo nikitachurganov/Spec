@@ -98,6 +98,7 @@ export type SpecLayerOptionsLoadedMessage = {
     specSelectedLayerPaths: string[];
     anatomySelectedLayerPaths: string[];
     autoSelectedLayerPaths: string[];
+    specPreviewPayload: AnatomyPreviewPayload | null;
     anatomyPreviewPayload: AnatomyPreviewPayload | null;
   };
 };

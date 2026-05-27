@@ -2,7 +2,9 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 
 .header {
@@ -53,8 +55,8 @@
   background: rgba(0, 0, 0, 0.04);
   padding: 8px;
   overflow: hidden;
-  height: 300px;
-  min-height: 220px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .canvas {
@@ -63,10 +65,18 @@
 }
 
 .image {
+  position: absolute;
+  left: 0;
+  top: 0;
   display: block;
   width: 100%;
   height: 100%;
   border-radius: 6px;
+}
+
+.hotspotLayer {
+  position: absolute;
+  inset: 0;
 }
 
 .overlay {
@@ -89,17 +99,18 @@
 .hotspot {
   position: absolute;
   pointer-events: none;
-  border: 1px solid transparent;
+  outline: 1px solid transparent;
+  outline-offset: 0;
   border-radius: 3px;
 }
 
 .hotspotSelected {
-  border-color: #fc8507;
+  outline-color: #fc8507;
   background: rgba(252, 133, 7, 0.08);
 }
 
 .hotspotHover {
-  border-color: rgba(252, 133, 7, 0.7);
+  outline-color: rgba(252, 133, 7, 0.7);
 }
 
 .picker {

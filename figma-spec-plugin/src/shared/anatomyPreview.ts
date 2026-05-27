@@ -27,9 +27,18 @@ export type AnatomyPreviewHotspot = {
   isComponentLike: boolean;
 };
 
+export type PreviewCoordinateSpace = {
+  originX: number;
+  originY: number;
+  width: number;
+  height: number;
+  source: 'absoluteBoundingBox' | 'visualBounds';
+};
+
 export type AnatomyPreviewPayload = {
   imageDataUrl: string;
   imageWidth: number;
   imageHeight: number;
+  coordinateSpace: PreviewCoordinateSpace;
   hotspots: AnatomyPreviewHotspot[];
 };

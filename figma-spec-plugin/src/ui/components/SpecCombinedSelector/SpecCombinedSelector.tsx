@@ -2,9 +2,9 @@ import type { AnatomyPreviewPayload } from '@shared/anatomyPreview';
 import type { SpecLayerOption } from '@shared/messages';
 import { AnatomyPreviewSelector } from '../AnatomyPreviewSelector/AnatomyPreviewSelector';
 import { SpecLayerMultiSelect } from '../SpecLayerMultiSelect';
-import styles from './AnatomyCombinedSelector.module.css';
+import styles from './SpecCombinedSelector.module.css';
 
-export type AnatomyCombinedSelectorProps = {
+export type SpecCombinedSelectorProps = {
   options: SpecLayerOption[];
   preview: AnatomyPreviewPayload | null;
   selectedPaths: string[];
@@ -16,7 +16,7 @@ export type AnatomyCombinedSelectorProps = {
   onResetToAuto?: () => void;
 };
 
-export function AnatomyCombinedSelector({
+export function SpecCombinedSelector({
   options,
   preview,
   selectedPaths,
@@ -26,7 +26,7 @@ export function AnatomyCombinedSelector({
   rootId,
   onSelectedPathsChange,
   onResetToAuto,
-}: AnatomyCombinedSelectorProps) {
+}: SpecCombinedSelectorProps) {
   return (
     <section className={styles.root}>
       <div className={styles.splitArea}>
@@ -35,8 +35,10 @@ export function AnatomyCombinedSelector({
             payload={preview}
             selectedPaths={selectedPaths}
             onSelectedPathsChange={onSelectedPathsChange}
+            purpose="spec"
             showTitle={false}
             selectedCountLabel={`Выбрано: ${selectedPaths.length} эл.`}
+            fallbackText="Preview is unavailable. Use the layer tree to select Spec containers."
           />
         </div>
         <div className={styles.decompositionDivider} />
@@ -54,7 +56,7 @@ export function AnatomyCombinedSelector({
             showRefresh={false}
             showResetButton={false}
             cascadeSelection={false}
-            title="Декомпозиция анатомии"
+            title="Декомпозиция Spec"
           />
         </div>
       </div>

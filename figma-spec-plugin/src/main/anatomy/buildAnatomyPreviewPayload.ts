@@ -1,7 +1,13 @@
 /// <reference types="@figma/plugin-typings" />
 
-import type { AnatomyPreviewHotspot, AnatomyPreviewPayload } from '../../shared/anatomyPreview';
+import type {
+  AnatomyPreviewHotspot,
+  AnatomyPreviewPayload,
+  PreviewCoordinateSpace,
+} from '../../shared/anatomyPreview';
 import type { DecompositionTree } from '../decomposition/decompositionTypes';
+import { getNodeVisualBounds } from '../figma/visualBounds';
+import { getNodeBoundsRelativeToRoot } from '../figma/nodeBounds';
 
 type BuildAnatomyPreviewPayloadParams = {
   rootNode: SceneNode;
@@ -15,25 +21,37 @@ type Rect = {
   height: number;
 };
 
-function toRootBounds(rootNode: SceneNode): Rect {
-  const box = rootNode.absoluteBoundingBox;
+function getCoordinateSpace(rootNode: SceneNode): PreviewCoordinateSpace {
+  const rootBox = rootNode.absoluteBoundingBox;
   if (
-    box &&
-    Number.isFinite(box.x) &&
-    Number.isFinite(box.y) &&
-    Number.isFinite(box.width) &&
-    Number.isFinite(box.height) &&
-    box.width > 0 &&
-    box.height > 0
+    rootBox &&
+    Number.isFinite(rootBox.x) &&
+    Number.isFinite(rootBox.y) &&
+    Number.isFinite(rootBox.width) &&
+    Number.isFinite(rootBox.height) &&
+    rootBox.width > 0 &&
+    rootBox.height > 0
   ) {
-    return { x: box.x, y: box.y, width: box.width, height: box.height };
+    return {
+      originX: rootBox.x,
+      originY: rootBox.y,
+      width: rootBox.width,
+      height: rootBox.height,
+      source: 'absoluteBoundingBox',
+    };
   }
 
-  const x = 'x' in rootNode && Number.isFinite(rootNode.x) ? rootNode.x : 0;
-  const y = 'y' in rootNode && Number.isFinite(rootNode.y) ? rootNode.y : 0;
-  const width = Math.max(1, Number.isFinite(rootNode.width) ? rootNode.width : 1);
-  const height = Math.max(1, Number.isFinite(rootNode.height) ? rootNode.height : 1);
-  return { x, y, width, height };
+  const visual = getNodeVisualBounds(rootNode, {
+    includeInvisible: false,
+    includeAbsoluteChildren: true,
+  });
+  return {
+    originX: visual.x,
+    originY: visual.y,
+    width: Math.max(1, visual.width),
+    height: Math.max(1, visual.height),
+    source: 'visualBounds',
+  };
 }
 
 function intersection(a: Rect, b: Rect): Rect | null {
@@ -107,10 +125,17 @@ function createPngDataUrl(bytes: Uint8Array): string {
 }
 
 function createHotspots(params: {
-  rootBounds: Rect;
+  rootNode: SceneNode;
+  coordinateSpace: PreviewCoordinateSpace;
   decomposition: DecompositionTree;
 }): AnatomyPreviewHotspot[] {
-  const { rootBounds, decomposition } = params;
+  const { rootNode, coordinateSpace, decomposition } = params;
+  const rootBounds: Rect = {
+    x: coordinateSpace.originX,
+    y: coordinateSpace.originY,
+    width: coordinateSpace.width,
+    height: coordinateSpace.height,
+  };
   const hotspots: AnatomyPreviewHotspot[] = [];
   const entries = Array.from(decomposition.decompositionByPath.entries()).sort((a, b) => {
     const depthA = a[1].depth;
@@ -122,18 +147,21 @@ function createHotspots(params: {
   for (const [path, decompositionNode] of entries) {
     const node = decomposition.nodeByPath.get(path);
     if (!node) continue;
-    const nodeBox = node.absoluteBoundingBox;
+    const relativeBox = getNodeBoundsRelativeToRoot(node, rootNode);
     if (
-      !nodeBox ||
-      !Number.isFinite(nodeBox.x) ||
-      !Number.isFinite(nodeBox.y) ||
-      !Number.isFinite(nodeBox.width) ||
-      !Number.isFinite(nodeBox.height) ||
-      nodeBox.width <= 0 ||
-      nodeBox.height <= 0
+      !Number.isFinite(relativeBox.x) ||
+      !Number.isFinite(relativeBox.y) ||
+      !Number.isFinite(relativeBox.width) ||
+      !Number.isFinite(relativeBox.height)
     ) {
       continue;
     }
+    const nodeBox = {
+      x: rootBounds.x + relativeBox.x,
+      y: rootBounds.y + relativeBox.y,
+      width: Math.max(1, relativeBox.width),
+      height: Math.max(1, relativeBox.height),
+    };
 
     const clipped = intersection(
       rootBounds,
@@ -170,7 +198,7 @@ function createHotspots(params: {
 export async function buildAnatomyPreviewPayload(
   params: BuildAnatomyPreviewPayloadParams
 ): Promise<AnatomyPreviewPayload> {
-  const rootBounds = toRootBounds(params.rootNode);
+  const coordinateSpace = getCoordinateSpace(params.rootNode);
   const exportBytes = await params.rootNode.exportAsync({
     format: 'PNG',
     constraint: { type: 'SCALE', value: 1 },
@@ -179,10 +207,12 @@ export async function buildAnatomyPreviewPayload(
 
   return {
     imageDataUrl,
-    imageWidth: rootBounds.width,
-    imageHeight: rootBounds.height,
+    imageWidth: coordinateSpace.width,
+    imageHeight: coordinateSpace.height,
+    coordinateSpace,
     hotspots: createHotspots({
-      rootBounds,
+      rootNode: params.rootNode,
+      coordinateSpace,
       decomposition: params.decomposition,
     }),
   };

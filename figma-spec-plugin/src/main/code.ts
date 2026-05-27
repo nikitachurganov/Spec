@@ -6,7 +6,7 @@ import type { UiToMainMessage } from '../shared/messages';
 import { postToUi } from './postToUi';
 import { PLUGIN_UI_SIZE, STORAGE_KEY_SETTINGS } from '../shared/constants';
 import { DEFAULT_PLUGIN_SETTINGS, type PluginSettings } from '../shared/settings';
-import { handleGetSpecLayerOptions, isSupportedRoot } from './spec/handleSpecLayerOptions';
+import { handleGetSpecLayerOptions } from './spec/handleSpecLayerOptions';
 
 declare const __html__: string;
 const MIN_UI_WIDTH = 360;
@@ -44,14 +44,11 @@ function areStringArraysEqual(a: string[], b: string[]): boolean {
   return true;
 }
 
-const GENERATED_DOC_NAME_PREFIXES = [
-  'DS specification',
-  'Specification /',
-  '.DS-Template-header',
-] as const;
+const GENERATED_DOC_NAME_PREFIXES = ['DS specification'] as const;
 
 let activeSourceNodeId: string | null = null;
 let selectionChangeTicket = 0;
+let uiContextRequestTicket = 0;
 
 function isSceneNode(node: BaseNode | null): node is SceneNode {
   if (!node) return false;
@@ -82,7 +79,13 @@ function isGeneratedDocumentationNode(node: BaseNode | null): boolean {
 }
 
 function isValidDocumentationSource(node: SceneNode): boolean {
-  return isSupportedRoot(node) && !isGeneratedDocumentationNode(node);
+  if (isGeneratedDocumentationNode(node)) return false;
+  return (
+    node.type === 'FRAME' ||
+    node.type === 'COMPONENT' ||
+    node.type === 'INSTANCE' ||
+    node.type === 'COMPONENT_SET'
+  );
 }
 
 function findValidSourceCandidate(selection: readonly SceneNode[]): SceneNode | null {
@@ -126,9 +129,15 @@ async function postNoSourceState(): Promise<void> {
   });
 }
 
-async function postSpecLayerOptionsForSource(sourceNode: SceneNode): Promise<boolean> {
+async function postSpecLayerOptionsForSource(
+  sourceNode: SceneNode,
+  requestTicket: number
+): Promise<boolean> {
   const settings = await loadStoredSettings();
   const result = await handleGetSpecLayerOptions(settings, sourceNode);
+  if (requestTicket !== uiContextRequestTicket) {
+    return false;
+  }
   if (!result.ok) {
     postToUi({
       type: 'SPEC_LAYER_OPTIONS_ERROR',
@@ -163,6 +172,7 @@ async function postSpecLayerOptionsForSource(sourceNode: SceneNode): Promise<boo
       specSelectedLayerPaths: normalizedSelected.specSelectedLayerPaths,
       anatomySelectedLayerPaths: normalizedSelected.anatomySelectedLayerPaths,
       autoSelectedLayerPaths: result.autoSelectedLayerPaths,
+      specPreviewPayload: result.specPreviewPayload,
       anatomyPreviewPayload: result.anatomyPreviewPayload,
     },
   });
@@ -180,13 +190,12 @@ async function resolveSourceFromSelectionOrActive(): Promise<SceneNode | null> {
 
 async function handleSelectionChange(): Promise<void> {
   const ticket = ++selectionChangeTicket;
+  const requestTicket = ++uiContextRequestTicket;
   const candidate = findValidSourceCandidate(figma.currentPage.selection);
 
   if (candidate) {
-    if (candidate.id !== activeSourceNodeId) {
-      activeSourceNodeId = candidate.id;
-      await postSpecLayerOptionsForSource(candidate);
-    }
+    activeSourceNodeId = candidate.id;
+    await postSpecLayerOptionsForSource(candidate, requestTicket);
     return;
   }
 
@@ -201,6 +210,7 @@ async function handleSelectionChange(): Promise<void> {
     console.warn('[Selection] Active source node is no longer available. Clearing plugin state.');
   }
   activeSourceNodeId = null;
+  if (requestTicket !== uiContextRequestTicket) return;
   await postNoSourceState();
 }
 
@@ -213,10 +223,12 @@ void (async () => {
   const settings = await loadStoredSettings();
   postToUi({ type: 'SETTINGS_LOADED', payload: { settings } });
   const source = findValidSourceCandidate(figma.currentPage.selection);
+  const requestTicket = ++uiContextRequestTicket;
   if (source) {
     activeSourceNodeId = source.id;
-    await postSpecLayerOptionsForSource(source);
+    await postSpecLayerOptionsForSource(source, requestTicket);
   } else {
+    if (requestTicket !== uiContextRequestTicket) return;
     await postNoSourceState();
   }
   postToUi({ type: 'READY' });
@@ -257,13 +269,15 @@ figma.ui.onmessage = async (raw: unknown) => {
         break;
       }
       case 'GET_SPEC_LAYER_OPTIONS': {
+        const requestTicket = ++uiContextRequestTicket;
         const source = await resolveSourceFromSelectionOrActive();
         if (!source) {
+          if (requestTicket !== uiContextRequestTicket) break;
           await postNoSourceState();
           break;
         }
         activeSourceNodeId = source.id;
-        await postSpecLayerOptionsForSource(source);
+        await postSpecLayerOptionsForSource(source, requestTicket);
         break;
       }
       case 'SAVE_SPEC_SELECTED_LAYERS': {

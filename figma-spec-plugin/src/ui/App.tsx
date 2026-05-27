@@ -9,8 +9,8 @@ import type { MainToUiMessage, SpecLayerOption } from '@shared/messages';
 import type { AnatomyPreviewPayload } from '@shared/anatomyPreview';
 import { postToMain } from './postToMain';
 import { AnatomyCombinedSelector } from './components/AnatomyCombinedSelector/AnatomyCombinedSelector';
+import { SpecCombinedSelector } from './components/SpecCombinedSelector/SpecCombinedSelector';
 import { SettingsPanel } from './components/SettingsPanel';
-import { SpecLayerMultiSelect } from './components/SpecLayerMultiSelect';
 import { StatusMessage } from './components/StatusMessage';
 
 const NO_BLOCKS_ERROR = 'Выберите хотя бы один блок спецификации.';
@@ -32,7 +32,7 @@ function unwrapMainPayload(raw: unknown): unknown {
   return raw;
 }
 
-type DecompositionPurpose = 'spec' | 'anatomy' | 'structure';
+type DecompositionPurpose = 'spec' | 'anatomy';
 
 function filterDecompositionOptionsForPurpose(
   options: SpecLayerOption[],
@@ -43,7 +43,6 @@ function filterDecompositionOptionsForPurpose(
 
   const isRelevant = (option: SpecLayerOption): boolean => {
     if (option.isRoot) return true;
-    if (purpose === 'structure') return true;
     if (purpose === 'anatomy') return true;
     return option.isSelectable && !option.isText;
   };
@@ -65,9 +64,7 @@ function filterDecompositionOptionsForPurpose(
     .map((option) => ({
       ...option,
       isSelectable:
-        purpose === 'structure'
-          ? false
-          : purpose === 'anatomy'
+        purpose === 'anatomy'
           ? option.isRoot ||
             option.isText ||
             option.isSelectable ||
@@ -98,6 +95,8 @@ export function App() {
   const [specLayerOptionsLoading, setSpecLayerOptionsLoading] = useState(false);
   const [specLayerOptionsError, setSpecLayerOptionsError] = useState<string | null>(null);
   const [specLayerRootId, setSpecLayerRootId] = useState<string | null>(null);
+  const [specPreviewPayload, setSpecPreviewPayload] =
+    useState<AnatomyPreviewPayload | null>(null);
   const [anatomyPreviewPayload, setAnatomyPreviewPayload] =
     useState<AnatomyPreviewPayload | null>(null);
   const [activeDecompositionTab, setActiveDecompositionTab] = useState<DecompositionPurpose>('spec');
@@ -138,6 +137,7 @@ export function App() {
         setSpecLayerOptionsError(null);
         setSpecLayerRootId(data.payload.rootId);
         setSpecLayerOptions(data.payload.options);
+        setSpecPreviewPayload(data.payload.specPreviewPayload);
         setAnatomyPreviewPayload(data.payload.anatomyPreviewPayload);
         setSettings((prev) => ({
           ...prev,
@@ -149,9 +149,7 @@ export function App() {
 
       if (data.type === 'SPEC_LAYER_OPTIONS_ERROR') {
         setSpecLayerOptionsLoading(false);
-        setSpecLayerRootId(null);
-        setSpecLayerOptions([]);
-        setAnatomyPreviewPayload(null);
+        // Keep previous decomposition context visible on transient selection errors.
         setSpecLayerOptionsError(data.payload.message || SPEC_LAYER_EMPTY_HINT);
         return;
       }
@@ -301,10 +299,6 @@ export function App() {
     () => filterDecompositionOptionsForPurpose(specLayerOptions, 'anatomy'),
     [specLayerOptions]
   );
-  const structureOptions = useMemo(
-    () => filterDecompositionOptionsForPurpose(specLayerOptions, 'structure'),
-    [specLayerOptions]
-  );
 
   return (
     <div className="app">
@@ -372,34 +366,20 @@ export function App() {
                 >
                   Анатомия
                 </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeDecompositionTab === 'structure'}
-                  className={`decomposition-tab ${activeDecompositionTab === 'structure' ? 'is-active' : ''}`}
-                  onClick={() => setActiveDecompositionTab('structure')}
-                >
-                  Структура
-                </button>
               </div>
               <div className="decomposition-content">
                 {activeDecompositionTab === 'spec' ? (
-                  <div className="decomposition-content-scroll">
-                    <SpecLayerMultiSelect
-                      options={specOptions}
-                      selectedPaths={settings.specSelectedLayerPaths}
-                      isLoading={specLayerOptionsLoading}
-                      error={specLayerOptionsError}
-                      emptyHint={SPEC_LAYER_EMPTY_HINT}
-                      onChange={handleSpecLayerSelectionChange}
-                      onResetToAuto={handleResetSpecLayersToAuto}
-                      rootId={specLayerRootId}
-                      showHeader
-                      showRefresh={false}
-                      showResetButton
-                      title="Декомпозиция Spec"
-                    />
-                  </div>
+                  <SpecCombinedSelector
+                    options={specOptions}
+                    preview={specPreviewPayload}
+                    selectedPaths={settings.specSelectedLayerPaths}
+                    isLoading={specLayerOptionsLoading}
+                    error={specLayerOptionsError}
+                    emptyHint={SPEC_LAYER_EMPTY_HINT}
+                    rootId={specLayerRootId}
+                    onSelectedPathsChange={handleSpecLayerSelectionChange}
+                    onResetToAuto={handleResetSpecLayersToAuto}
+                  />
                 ) : null}
                 {activeDecompositionTab === 'anatomy' ? (
                   <AnatomyCombinedSelector
@@ -413,25 +393,6 @@ export function App() {
                     onSelectedPathsChange={handleAnatomyLayerSelectionChange}
                     onResetToAuto={handleResetAnatomyLayersToAuto}
                   />
-                ) : null}
-                {activeDecompositionTab === 'structure' ? (
-                  <div className="decomposition-content-scroll">
-                    <SpecLayerMultiSelect
-                      options={structureOptions}
-                      selectedPaths={[]}
-                      isLoading={specLayerOptionsLoading}
-                      error={specLayerOptionsError}
-                      emptyHint={SPEC_LAYER_EMPTY_HINT}
-                      onChange={() => undefined}
-                      rootId={specLayerRootId}
-                      showHeader
-                      showRefresh={false}
-                      showResetButton={false}
-                      checkable={false}
-                      cascadeSelection={false}
-                      title="Структура компонента"
-                    />
-                  </div>
                 ) : null}
               </div>
             </div>
