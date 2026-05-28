@@ -99,7 +99,9 @@ export function App() {
     useState<AnatomyPreviewPayload | null>(null);
   const [anatomyPreviewPayload, setAnatomyPreviewPayload] =
     useState<AnatomyPreviewPayload | null>(null);
-  const [activeDecompositionTab, setActiveDecompositionTab] = useState<DecompositionPurpose>('spec');
+  const [activeDecompositionTab, setActiveDecompositionTab] = useState<DecompositionPurpose | null>(
+    'spec'
+  );
   const [uiSize, setUiSize] = useState(() => ({
     width: window.innerWidth,
     height: window.innerHeight,
@@ -214,6 +216,15 @@ export function App() {
     });
   }, []);
 
+  const handleSettingsChange = useCallback((next: PluginSettings) => {
+    const normalized = withHiddenSpecificationPreferences(next);
+    setSettings(normalized);
+    postToMain({
+      type: 'SAVE_SETTINGS',
+      payload: { settings: normalized },
+    });
+  }, []);
+
   const handleResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
       event.preventDefault();
@@ -308,6 +319,26 @@ export function App() {
     () => filterDecompositionOptionsForPurpose(specLayerOptions, 'anatomy'),
     [specLayerOptions]
   );
+  const isSpecEnabled = Boolean(settings.spec);
+  const isAnatomyEnabled = Boolean(settings.componentAnatomy);
+
+  useEffect(() => {
+    if (activeDecompositionTab === 'spec' && !isSpecEnabled) {
+      setActiveDecompositionTab(isAnatomyEnabled ? 'anatomy' : null);
+      return;
+    }
+    if (activeDecompositionTab === 'anatomy' && !isAnatomyEnabled) {
+      setActiveDecompositionTab(isSpecEnabled ? 'spec' : null);
+      return;
+    }
+    if (activeDecompositionTab === null) {
+      if (isSpecEnabled) {
+        setActiveDecompositionTab('spec');
+      } else if (isAnatomyEnabled) {
+        setActiveDecompositionTab('anatomy');
+      }
+    }
+  }, [activeDecompositionTab, isAnatomyEnabled, isSpecEnabled]);
 
   return (
     <div className="app">
@@ -343,7 +374,7 @@ export function App() {
           <div className="plugin-panel-body">
             <SettingsPanel
               settings={settings}
-              onChange={setSettings}
+              onChange={handleSettingsChange}
             />
             {error ? <StatusMessage text={error} variant="error" /> : null}
             {!error && status ? <StatusMessage text={status} variant="success" /> : null}
@@ -361,8 +392,13 @@ export function App() {
                   type="button"
                   role="tab"
                   aria-selected={activeDecompositionTab === 'spec'}
+                  aria-disabled={!isSpecEnabled}
+                  disabled={!isSpecEnabled}
                   className={`decomposition-tab ${activeDecompositionTab === 'spec' ? 'is-active' : ''}`}
-                  onClick={() => setActiveDecompositionTab('spec')}
+                  onClick={() => {
+                    if (!isSpecEnabled) return;
+                    setActiveDecompositionTab('spec');
+                  }}
                 >
                   Spec
                 </button>
@@ -370,14 +406,24 @@ export function App() {
                   type="button"
                   role="tab"
                   aria-selected={activeDecompositionTab === 'anatomy'}
+                  aria-disabled={!isAnatomyEnabled}
+                  disabled={!isAnatomyEnabled}
                   className={`decomposition-tab ${activeDecompositionTab === 'anatomy' ? 'is-active' : ''}`}
-                  onClick={() => setActiveDecompositionTab('anatomy')}
+                  onClick={() => {
+                    if (!isAnatomyEnabled) return;
+                    setActiveDecompositionTab('anatomy');
+                  }}
                 >
                   Анатомия
                 </button>
               </div>
               <div className="decomposition-content">
-                {activeDecompositionTab === 'spec' ? (
+                {activeDecompositionTab === null ? (
+                  <div className="decomposition-empty-state">
+                    Включите Spec или Анатомию, чтобы настроить декомпозицию.
+                  </div>
+                ) : null}
+                {activeDecompositionTab === 'spec' && isSpecEnabled ? (
                   <SpecCombinedSelector
                     options={specOptions}
                     preview={specPreviewPayload}
@@ -390,7 +436,7 @@ export function App() {
                     onResetToAuto={handleResetSpecLayersToAuto}
                   />
                 ) : null}
-                {activeDecompositionTab === 'anatomy' ? (
+                {activeDecompositionTab === 'anatomy' && isAnatomyEnabled ? (
                   <AnatomyCombinedSelector
                     options={anatomyOptions}
                     preview={anatomyPreviewPayload}

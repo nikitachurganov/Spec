@@ -3,12 +3,14 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import type { AnatomyPreviewHotspot, AnatomyPreviewPayload } from '@shared/anatomyPreview';
 import styles from './AnatomyPreviewSelector.module.css';
 
 const DEBUG_PREVIEW_COORDS = false;
+const DOUBLE_CLICK_DELAY_MS = 220;
 
 export type AnatomyPreviewSelectorProps = {
   payload: AnatomyPreviewPayload | null;
@@ -30,6 +32,11 @@ type InteractionState = {
   panX: number;
   panY: number;
   moved: boolean;
+};
+type AnatomySelectionMode = 'normal' | 'deep';
+type PreviewPointerPoint = {
+  clientX: number;
+  clientY: number;
 };
 
 function togglePath(paths: string[], path: string): string[] {
@@ -99,6 +106,72 @@ function sortCandidates(
   });
 }
 
+function anatomyNormalPriority(kind: AnatomyPreviewHotspot['kind'], isRoot: boolean): number {
+  if (isRoot) return 99;
+  if (kind === 'container') return 0;
+  if (kind === 'component' || kind === 'instance') return 1;
+  if (kind === 'action') return 2;
+  if (kind === 'text') return 3;
+  if (kind === 'icon' || kind === 'badge' || kind === 'divider') return 4;
+  return 10;
+}
+
+function anatomyDeepPriority(kind: AnatomyPreviewHotspot['kind'], isRoot: boolean): number {
+  if (isRoot) return 99;
+  if (kind === 'text') return 0;
+  if (kind === 'action') return 1;
+  if (kind === 'icon' || kind === 'badge' || kind === 'divider') return 2;
+  if (kind === 'container') return 3;
+  if (kind === 'component' || kind === 'instance') return 4;
+  return 10;
+}
+
+function sortCandidatesForNormalClick(
+  candidates: AnatomyPreviewHotspot[],
+  selectedSet: Set<string>
+): AnatomyPreviewHotspot[] {
+  return [...candidates].sort((a, b) => {
+    const selectedWeight = Number(selectedSet.has(b.path)) - Number(selectedSet.has(a.path));
+    if (selectedWeight !== 0) return selectedWeight;
+    const depthDiff = a.depth - b.depth;
+    if (depthDiff !== 0) return depthDiff;
+    const areaDiff = area(b) - area(a);
+    if (areaDiff !== 0) return areaDiff;
+    const kindDiff =
+      anatomyNormalPriority(a.kind, a.isRoot) - anatomyNormalPriority(b.kind, b.isRoot);
+    if (kindDiff !== 0) return kindDiff;
+    return a.path.localeCompare(b.path);
+  });
+}
+
+function sortCandidatesForDeepClick(
+  candidates: AnatomyPreviewHotspot[],
+  _selectedSet: Set<string>
+): AnatomyPreviewHotspot[] {
+  return [...candidates].sort((a, b) => {
+    const rootDiff = Number(a.isRoot) - Number(b.isRoot);
+    if (rootDiff !== 0) return rootDiff;
+    const depthDiff = b.depth - a.depth;
+    if (depthDiff !== 0) return depthDiff;
+    const areaDiff = area(a) - area(b);
+    if (areaDiff !== 0) return areaDiff;
+    const kindDiff = anatomyDeepPriority(a.kind, a.isRoot) - anatomyDeepPriority(b.kind, b.isRoot);
+    if (kindDiff !== 0) return kindDiff;
+    return a.path.localeCompare(b.path);
+  });
+}
+
+function chooseNextCandidate(
+  candidates: AnatomyPreviewHotspot[],
+  selectedSet: Set<string>
+): AnatomyPreviewHotspot {
+  const selectedIndex = candidates.findIndex((candidate) => selectedSet.has(candidate.path));
+  if (selectedIndex >= 0) {
+    return candidates[(selectedIndex + 1) % candidates.length];
+  }
+  return candidates[0];
+}
+
 export function AnatomyPreviewSelector({
   payload,
   selectedPaths,
@@ -116,6 +189,9 @@ export function AnatomyPreviewSelector({
   const imageRef = useRef<HTMLImageElement | null>(null);
   const hotspotLayerRef = useRef<HTMLDivElement | null>(null);
   const interactionRef = useRef<InteractionState | null>(null);
+  const singleClickTimeoutRef = useRef<number | null>(null);
+  const lastPointerRef = useRef<PreviewPointerPoint | null>(null);
+  const pointerInsidePreviewRef = useRef(false);
   const scaleRef = useRef(1);
   const panRef = useRef({ x: 0, y: 0 });
   const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths]);
@@ -128,6 +204,7 @@ export function AnatomyPreviewSelector({
   const [isPanning, setIsPanning] = useState(false);
   const [spacePressed, setSpacePressed] = useState(false);
   const [previewHovered, setPreviewHovered] = useState(false);
+  const [isModifierPressed, setIsModifierPressed] = useState(false);
   const previewPayload = payload;
   const hasPreview = Boolean(previewPayload?.imageDataUrl);
 
@@ -135,10 +212,21 @@ export function AnatomyPreviewSelector({
     () => (payload?.hotspots || []).filter((spot) => spot.selectable),
     [payload]
   );
+  const isSpecFocusMode = purpose === 'spec' && selectedPaths.length > 0;
+  const selectedSpecHotspots = useMemo(
+    () => (payload?.hotspots || []).filter((spot) => selectedSet.has(spot.path)),
+    [payload, selectedSet]
+  );
 
   useEffect(() => {
     setHoveredPath(null);
   }, [payload?.imageDataUrl]);
+
+  useEffect(() => {
+    if (spacePressed || isPanning) {
+      setHoveredPath(null);
+    }
+  }, [spacePressed, isPanning]);
 
   useEffect(() => {
     setFitMode(true);
@@ -216,6 +304,54 @@ export function AnatomyPreviewSelector({
   }, [pan.x, pan.y, previewPayload, scale, selectableHotspots, selectedSet]);
 
   useEffect(() => {
+    return () => {
+      if (singleClickTimeoutRef.current != null) {
+        window.clearTimeout(singleClickTimeoutRef.current);
+        singleClickTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const isModifierEvent = (event: KeyboardEvent): boolean =>
+      event.ctrlKey || event.metaKey || event.key === 'Control' || event.key === 'Meta';
+
+    const recomputeModifierHover = () => {
+      if (purpose !== 'anatomy') return;
+      if (!pointerInsidePreviewRef.current) return;
+      if (spacePressed || isPanning) return;
+      const pointer = lastPointerRef.current;
+      if (!pointer) return;
+      const mode: AnatomySelectionMode = isModifierPressed ? 'deep' : 'normal';
+      const hoverCandidate = resolveHitCandidateForPreview(pointer.clientX, pointer.clientY, mode);
+      setHoveredPath(hoverCandidate?.path ?? null);
+    };
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (isModifierEvent(event)) {
+        setIsModifierPressed(event.ctrlKey || event.metaKey || event.key === 'Control' || event.key === 'Meta');
+      }
+    }
+    function onKeyUp(event: KeyboardEvent) {
+      if (isModifierEvent(event)) {
+        setIsModifierPressed(event.ctrlKey || event.metaKey);
+      }
+    }
+    function onBlur() {
+      setIsModifierPressed(false);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    recomputeModifierHover();
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [isModifierPressed, isPanning, purpose, spacePressed]);
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.code !== 'Space') return;
       if (isEditableTarget(event.target)) return;
@@ -268,15 +404,66 @@ export function AnatomyPreviewSelector({
     onSelectedPathsChange(togglePath(selectedPaths, path));
   }
 
-  function resolveHitCandidates(clientX: number, clientY: number): AnatomyPreviewHotspot[] {
+  function clearPendingSingleClick(): void {
+    if (singleClickTimeoutRef.current != null) {
+      window.clearTimeout(singleClickTimeoutRef.current);
+      singleClickTimeoutRef.current = null;
+    }
+  }
+
+  function getHotspotCandidatesAtPoint(clientX: number, clientY: number): AnatomyPreviewHotspot[] {
     const viewport = viewportRef.current;
     if (!viewport) return [];
     const rect = viewport.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return [];
     const x = (clientX - rect.left - pan.x) / effectiveScale;
     const y = (clientY - rect.top - pan.y) / effectiveScale;
-    const hits = selectableHotspots.filter((spot) => containsPoint(spot, x, y));
-    return sortCandidates(hits, selectedSet, purpose);
+    return selectableHotspots.filter((spot) => {
+      if (spot.bounds.width <= 0 || spot.bounds.height <= 0) return false;
+      return containsPoint(spot, x, y);
+    });
+  }
+
+  function resolveHitCandidateForPreview(
+    clientX: number,
+    clientY: number,
+    mode: AnatomySelectionMode
+  ): AnatomyPreviewHotspot | null {
+    const candidates = getHotspotCandidatesAtPoint(clientX, clientY);
+    if (!candidates.length) return null;
+    if (purpose !== 'anatomy') {
+      return sortCandidates(candidates, selectedSet, purpose)[0] ?? null;
+    }
+    if (mode === 'deep') {
+      return sortCandidatesForDeepClick(candidates, selectedSet)[0] ?? null;
+    }
+    return sortCandidatesForNormalClick(candidates, selectedSet)[0] ?? null;
+  }
+
+  function applySelectionFromPointer(
+    clientX: number,
+    clientY: number,
+    mode: AnatomySelectionMode,
+    shouldCycleDeep = false
+  ): void {
+    const candidates = getHotspotCandidatesAtPoint(clientX, clientY);
+    if (!candidates.length) return;
+    if (purpose !== 'anatomy') {
+      const candidate = sortCandidates(candidates, selectedSet, purpose)[0];
+      if (candidate) {
+        toggleSelection(candidate.path);
+      }
+      return;
+    }
+    if (mode === 'deep') {
+      const sorted = sortCandidatesForDeepClick(candidates, selectedSet);
+      if (!sorted.length) return;
+      const candidate = shouldCycleDeep ? chooseNextCandidate(sorted, selectedSet) : sorted[0];
+      if (candidate) toggleSelection(candidate.path);
+      return;
+    }
+    const candidate = sortCandidatesForNormalClick(candidates, selectedSet)[0];
+    if (candidate) toggleSelection(candidate.path);
   }
 
   function zoomAroundClient(clientX: number, clientY: number, nextScaleRaw: number) {
@@ -308,6 +495,7 @@ export function AnatomyPreviewSelector({
       moved: false,
     };
     if (mode === 'pan') {
+      setHoveredPath(null);
       setIsPanning(true);
       setFitMode(false);
       event.preventDefault();
@@ -316,6 +504,7 @@ export function AnatomyPreviewSelector({
 
   function onOverlayPointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
     if (event.button === 1 || (event.button === 0 && spacePressed)) {
+      clearPendingSingleClick();
       startInteraction(event, 'pan');
       return;
     }
@@ -325,11 +514,16 @@ export function AnatomyPreviewSelector({
   }
 
   function onOverlayPointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
+    lastPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
     const start = interactionRef.current;
     if (!start) {
-      if (!isPanning) {
-        const sortedCandidates = resolveHitCandidates(event.clientX, event.clientY);
-        setHoveredPath(sortedCandidates[0]?.path ?? null);
+      if (!isPanning && !spacePressed) {
+        const mode: AnatomySelectionMode =
+          purpose === 'anatomy' && isModifierPressed ? 'deep' : 'normal';
+        const hoverCandidate = resolveHitCandidateForPreview(event.clientX, event.clientY, mode);
+        setHoveredPath(hoverCandidate?.path ?? null);
+      } else {
+        setHoveredPath(null);
       }
       return;
     }
@@ -345,9 +539,13 @@ export function AnatomyPreviewSelector({
         y: start.panY + dy,
       });
     } else {
-      if (!start.moved) {
-        const sortedCandidates = resolveHitCandidates(event.clientX, event.clientY);
-        setHoveredPath(sortedCandidates[0]?.path ?? null);
+      if (!start.moved && !spacePressed) {
+        const mode: AnatomySelectionMode =
+          purpose === 'anatomy' && isModifierPressed ? 'deep' : 'normal';
+        const hoverCandidate = resolveHitCandidateForPreview(event.clientX, event.clientY, mode);
+        setHoveredPath(hoverCandidate?.path ?? null);
+      } else if (spacePressed) {
+        setHoveredPath(null);
       }
     }
   }
@@ -356,13 +554,29 @@ export function AnatomyPreviewSelector({
     const start = interactionRef.current;
     if (!start || start.pointerId !== event.pointerId) return;
     if (start.mode === 'select' && !start.moved) {
-      const sortedCandidates = resolveHitCandidates(event.clientX, event.clientY);
-      if (sortedCandidates.length > 0) {
-        toggleSelection(sortedCandidates[0].path);
+      const isDeepModifier = event.ctrlKey || event.metaKey;
+      if (purpose !== 'anatomy') {
+        applySelectionFromPointer(event.clientX, event.clientY, 'normal');
+      } else if (isDeepModifier) {
+        clearPendingSingleClick();
+        applySelectionFromPointer(event.clientX, event.clientY, 'deep', true);
+      } else {
+        clearPendingSingleClick();
+        singleClickTimeoutRef.current = window.setTimeout(() => {
+          applySelectionFromPointer(event.clientX, event.clientY, 'normal');
+          singleClickTimeoutRef.current = null;
+        }, DOUBLE_CLICK_DELAY_MS);
       }
     }
     interactionRef.current = null;
     setIsPanning(false);
+  }
+
+  function onOverlayDoubleClick(event: ReactMouseEvent<HTMLDivElement>): void {
+    if (purpose !== 'anatomy') return;
+    if (spacePressed || isPanning) return;
+    clearPendingSingleClick();
+    applySelectionFromPointer(event.clientX, event.clientY, 'deep');
   }
 
   function onOverlayPointerCancel(): void {
@@ -451,8 +665,16 @@ export function AnatomyPreviewSelector({
         <div
           ref={viewportRef}
           className={styles.viewport}
-          onMouseEnter={() => setPreviewHovered(true)}
-          onMouseLeave={() => setPreviewHovered(false)}
+          onMouseEnter={() => {
+            pointerInsidePreviewRef.current = true;
+            setPreviewHovered(true);
+          }}
+          onMouseLeave={() => {
+            pointerInsidePreviewRef.current = false;
+            lastPointerRef.current = null;
+            setHoveredPath(null);
+            setPreviewHovered(false);
+          }}
           onAuxClick={(event) => {
             if (event.button === 1) {
               event.preventDefault();
@@ -486,6 +708,21 @@ export function AnatomyPreviewSelector({
                     height: `${previewPayload.imageHeight}px`,
                   }}
                 />
+                {isSpecFocusMode ? <div className={styles.previewDimOverlay} /> : null}
+                {isSpecFocusMode
+                  ? selectedSpecHotspots.map((spot) => (
+                      <div
+                        key={`focus-${spot.path}`}
+                        className={styles.specFocusHotspot}
+                        style={{
+                          left: `${spot.bounds.x}px`,
+                          top: `${spot.bounds.y}px`,
+                          width: `${spot.bounds.width}px`,
+                          height: `${spot.bounds.height}px`,
+                        }}
+                      />
+                    ))
+                  : null}
                 <div
                   ref={hotspotLayerRef}
                   className={styles.hotspotLayer}
@@ -500,12 +737,13 @@ export function AnatomyPreviewSelector({
                     const width = spot.bounds.width;
                     const height = spot.bounds.height;
                     const selected = selectedSet.has(spot.path);
-                    const hovered = hoveredPath === spot.path;
+                    const hovered = hoveredPath === spot.path && !selected && !spacePressed && !isPanning;
                     return (
                       <div
                         key={spot.path}
                         className={[
                           styles.hotspot,
+                      isSpecFocusMode && !selected ? styles.hotspotDimmed : '',
                           selected ? styles.hotspotSelected : '',
                           hovered ? styles.hotspotHover : '',
                         ].join(' ')}
@@ -526,6 +764,7 @@ export function AnatomyPreviewSelector({
                   onMouseLeave={() => setHoveredPath(null)}
                   onPointerDown={onOverlayPointerDown}
                   onPointerUp={onOverlayPointerUp}
+                  onDoubleClick={onOverlayDoubleClick}
                   onPointerCancel={onOverlayPointerCancel}
                   style={{
                     cursor: isPanning

@@ -1,5 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
-import { createPluginFrame, createPluginText } from '../figma/pluginSceneNodes';
+import { createPluginFrame, createPluginRectangle, createPluginText } from '../figma/pluginSceneNodes';
 
 import type { StyleResolver } from '../tokens/styleResolver';
 import { SPEC_TOKEN_MAP, specColorFallbackRgb } from '../tokens/tokenMap';
@@ -122,6 +122,118 @@ function createOverlayContainer(width: number, height: number): FrameNode {
   container.y = 0;
   container.resize(Math.max(1, width), Math.max(1, height));
   return container;
+}
+
+function intersectRects(a: Rect, b: Rect): Rect | null {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  const width = right - x;
+  const height = bottom - y;
+  if (width <= 0 || height <= 0) return null;
+  return roundRect({ x, y, width, height });
+}
+
+function createNonTargetOverlayRect(
+  name: string,
+  bounds: Rect,
+  fillColor: RGB,
+  fillOpacity: number
+): RectangleNode | null {
+  const normalized = roundRect(bounds);
+  if (normalized.width <= 0 || normalized.height <= 0) return null;
+  const rect = createPluginRectangle();
+  rect.name = name;
+  rect.x = Math.round(normalized.x);
+  rect.y = Math.round(normalized.y);
+  rect.resize(Math.max(1, Math.round(normalized.width)), Math.max(1, Math.round(normalized.height)));
+  rect.fills = [{ type: 'SOLID', color: fillColor, opacity: fillOpacity }];
+  rect.strokes = [];
+  return rect;
+}
+
+function createSpecNonTargetOverlay(params: {
+  previewBounds: Rect;
+  targetBounds: Rect;
+  overlayFill?: RGB;
+  overlayOpacity?: number;
+}): FrameNode | null {
+  const { previewBounds, targetBounds } = params;
+  const overlayFill = params.overlayFill ?? { r: 1, g: 1, b: 1 };
+  const overlayOpacity = params.overlayOpacity ?? 0.72;
+
+  const clampedTarget = intersectRects(previewBounds, targetBounds);
+  if (!clampedTarget) {
+    console.warn('[Spec] Skipping non-target overlay: target bounds do not intersect preview bounds');
+    return null;
+  }
+
+  const overlay = createPluginFrame();
+  overlay.name = 'Spec non-target overlay';
+  overlay.layoutMode = 'NONE';
+  overlay.clipsContent = false;
+  overlay.fills = [];
+  overlay.strokes = [];
+  overlay.x = 0;
+  overlay.y = 0;
+  overlay.resize(Math.max(1, previewBounds.width), Math.max(1, previewBounds.height));
+
+  const top = createNonTargetOverlayRect(
+    'Spec non-target overlay / Top',
+    {
+      x: previewBounds.x,
+      y: previewBounds.y,
+      width: previewBounds.width,
+      height: clampedTarget.y - previewBounds.y,
+    },
+    overlayFill,
+    overlayOpacity
+  );
+  const bottom = createNonTargetOverlayRect(
+    'Spec non-target overlay / Bottom',
+    {
+      x: previewBounds.x,
+      y: clampedTarget.y + clampedTarget.height,
+      width: previewBounds.width,
+      height: previewBounds.y + previewBounds.height - (clampedTarget.y + clampedTarget.height),
+    },
+    overlayFill,
+    overlayOpacity
+  );
+  const left = createNonTargetOverlayRect(
+    'Spec non-target overlay / Left',
+    {
+      x: previewBounds.x,
+      y: clampedTarget.y,
+      width: clampedTarget.x - previewBounds.x,
+      height: clampedTarget.height,
+    },
+    overlayFill,
+    overlayOpacity
+  );
+  const right = createNonTargetOverlayRect(
+    'Spec non-target overlay / Right',
+    {
+      x: clampedTarget.x + clampedTarget.width,
+      y: clampedTarget.y,
+      width: previewBounds.x + previewBounds.width - (clampedTarget.x + clampedTarget.width),
+      height: clampedTarget.height,
+    },
+    overlayFill,
+    overlayOpacity
+  );
+
+  if (top) overlay.appendChild(top);
+  if (bottom) overlay.appendChild(bottom);
+  if (left) overlay.appendChild(left);
+  if (right) overlay.appendChild(right);
+
+  if (!overlay.children.length) {
+    return null;
+  }
+
+  return overlay;
 }
 
 /**
@@ -255,6 +367,14 @@ export async function createPaddingVisualization(
 
   const overlayContainer = createOverlayContainer(cw, ch);
   previewWrapper.appendChild(overlayContainer);
+
+  const nonTargetOverlay = createSpecNonTargetOverlay({
+    previewBounds: { x: 0, y: 0, width: cw, height: ch },
+    targetBounds,
+  });
+  if (nonTargetOverlay) {
+    overlayContainer.appendChild(nonTargetOverlay);
+  }
 
   if (previewSections.childOverlays !== false) {
     const childOverlays = await createChildOverlaysForTarget(targetCloneNode, rootClone);
