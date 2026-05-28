@@ -5,6 +5,9 @@ import { createPluginFrame, createPluginRectangle } from '../figma/pluginSceneNo
 import type {
   AnatomyBounds,
   AnatomyConnectorSegment,
+  ConnectorEntrySide,
+  ConnectorRoute,
+  ConnectorRouteSegment,
   AnatomyItem,
   AnatomyPointerPlacement,
   AnatomyPointerSide,
@@ -33,6 +36,7 @@ const CLOSE_TO_OBSTACLE_PENALTY = 200;
 
 const SIDE_ORDER: PointerSide[] = ['left', 'right', 'top', 'bottom'];
 const anatomyGeometryWarnings = new Set<string>();
+const ROUTE_EPSILON = 0.5;
 
 function warnOnce(key: string, message: string): void {
   if (anatomyGeometryWarnings.has(key)) return;
@@ -69,12 +73,58 @@ function getTargetCenter(targetBounds: Rect): Point {
   };
 }
 
-function getTargetEdgePoint(side: PointerSide, targetBounds: Rect): Point {
+function getTargetPointForEntrySide(side: ConnectorEntrySide, targetBounds: Rect): Point {
   const c = getTargetCenter(targetBounds);
   if (side === 'left') return roundPoint({ x: targetBounds.x, y: c.y });
   if (side === 'right') return roundPoint({ x: targetBounds.x + targetBounds.width, y: c.y });
   if (side === 'top') return roundPoint({ x: c.x, y: targetBounds.y });
   return roundPoint({ x: c.x, y: targetBounds.y + targetBounds.height });
+}
+
+function getSegmentOrientation(from: Point, to: Point): 'horizontal' | 'vertical' | null {
+  if (from.x === to.x && from.y !== to.y) return 'vertical';
+  if (from.y === to.y && from.x !== to.x) return 'horizontal';
+  return null;
+}
+
+function getTargetEntrySideFromFinalSegment(segment: ConnectorRouteSegment): ConnectorEntrySide {
+  if (segment.orientation === 'horizontal') {
+    if (segment.to.x > segment.from.x) return 'left';
+    if (segment.to.x < segment.from.x) return 'right';
+  } else {
+    if (segment.to.y > segment.from.y) return 'top';
+    if (segment.to.y < segment.from.y) return 'bottom';
+  }
+  throw new Error('Invalid zero-length final connector segment');
+}
+
+function pointsEqual(a: Point, b: Point, epsilon = ROUTE_EPSILON): boolean {
+  return Math.abs(a.x - b.x) <= epsilon && Math.abs(a.y - b.y) <= epsilon;
+}
+
+function toRouteSegments(lines: StraightConnectorLine[]): ConnectorRouteSegment[] {
+  const segments: ConnectorRouteSegment[] = [];
+  for (const line of lines) {
+    const from: Point = { x: line.x1, y: line.y1 };
+    const to: Point = { x: line.x2, y: line.y2 };
+    const orientation = getSegmentOrientation(from, to);
+    if (!orientation) continue;
+    segments.push({ from, to, orientation });
+  }
+  return segments;
+}
+
+function validateRouteTargetEntry(route: ConnectorRoute, targetBounds: Rect): boolean {
+  if (!route.segments.length) return false;
+  const finalSegment = route.segments[route.segments.length - 1];
+  let entrySide: ConnectorEntrySide;
+  try {
+    entrySide = getTargetEntrySideFromFinalSegment(finalSegment);
+  } catch {
+    return false;
+  }
+  const expectedTargetPoint = getTargetPointForEntrySide(entrySide, targetBounds);
+  return pointsEqual(finalSegment.to, expectedTargetPoint) && route.targetEntrySide === entrySide;
 }
 
 function getMarkerEdgePoint(
@@ -145,13 +195,76 @@ function buildConnectorLines(params: {
   side: PointerSide;
   markerCenter: Point;
   markerRadius: number;
-  targetPoint: Point;
+  itemId: string;
+  markerIndex: number;
+  targetBounds: Rect;
+  targetCenter: Point;
   artworkBounds: Rect;
   routeMode: 'primary' | 'secondary' | 'gutter';
-}): StraightConnectorLine[] {
-  const { side, markerCenter, markerRadius, targetPoint, artworkBounds, routeMode } = params;
+}): { lines: StraightConnectorLine[]; targetPoint: Point; targetEntrySide: ConnectorEntrySide } | null {
+  const {
+    side,
+    markerCenter,
+    markerRadius,
+    itemId,
+    markerIndex,
+    targetBounds,
+    targetCenter,
+    artworkBounds,
+    routeMode,
+  } = params;
   const start = getMarkerEdgePoint(side, markerCenter, markerRadius);
-  const lines: StraightConnectorLine[] = [];
+  const routeFromPoints = (
+    points: Point[]
+  ): { lines: StraightConnectorLine[]; targetPoint: Point; targetEntrySide: ConnectorEntrySide } | null => {
+    if (points.length < 2) return null;
+    const lines: StraightConnectorLine[] = [];
+    for (let i = 1; i < points.length; i++) {
+      pushOrthogonalSegment(
+        lines,
+        points[i - 1].x,
+        points[i - 1].y,
+        points[i].x,
+        points[i].y
+      );
+    }
+    const segments = toRouteSegments(lines);
+    if (!segments.length) return null;
+    const finalSegment = segments[segments.length - 1];
+    const targetEntrySide = getTargetEntrySideFromFinalSegment(finalSegment);
+    const targetPoint = getTargetPointForEntrySide(targetEntrySide, targetBounds);
+    const correctedLines: StraightConnectorLine[] = [];
+    for (let i = 0; i < segments.length - 1; i++) {
+      const segment = segments[i];
+      pushOrthogonalSegment(
+        correctedLines,
+        segment.from.x,
+        segment.from.y,
+        segment.to.x,
+        segment.to.y
+      );
+    }
+    pushOrthogonalSegment(
+      correctedLines,
+      finalSegment.from.x,
+      finalSegment.from.y,
+      targetPoint.x,
+      targetPoint.y
+    );
+    const route: ConnectorRoute = {
+      itemId,
+      markerIndex,
+      segments: toRouteSegments(correctedLines),
+      targetEntrySide,
+      targetPoint,
+    };
+    if (!validateRouteTargetEntry(route, targetBounds)) return null;
+    return {
+      lines: correctedLines,
+      targetPoint,
+      targetEntrySide,
+    };
+  };
 
   if (routeMode === 'gutter') {
     if (side === 'top' || side === 'bottom') {
@@ -159,38 +272,44 @@ function buildConnectorLines(params: {
         side === 'top'
           ? artworkBounds.y - MARKER_OUTSIDE_GAP - markerRadius - 24
           : artworkBounds.y + artworkBounds.height + MARKER_OUTSIDE_GAP + markerRadius + 24;
-      pushOrthogonalSegment(lines, start.x, start.y, start.x, gutterY);
-      pushOrthogonalSegment(lines, start.x, gutterY, targetPoint.x, gutterY);
-      pushOrthogonalSegment(lines, targetPoint.x, gutterY, targetPoint.x, targetPoint.y);
-      return lines;
+      return routeFromPoints([
+        start,
+        { x: start.x, y: gutterY },
+        { x: targetCenter.x, y: gutterY },
+        { x: targetCenter.x, y: targetCenter.y },
+      ]);
     }
     const gutterX =
       side === 'left'
         ? artworkBounds.x - MARKER_OUTSIDE_GAP - markerRadius - 24
         : artworkBounds.x + artworkBounds.width + MARKER_OUTSIDE_GAP + markerRadius + 24;
-    pushOrthogonalSegment(lines, start.x, start.y, gutterX, start.y);
-    pushOrthogonalSegment(lines, gutterX, start.y, gutterX, targetPoint.y);
-    pushOrthogonalSegment(lines, gutterX, targetPoint.y, targetPoint.x, targetPoint.y);
-    return lines;
+    return routeFromPoints([
+      start,
+      { x: gutterX, y: start.y },
+      { x: gutterX, y: targetCenter.y },
+      { x: targetCenter.x, y: targetCenter.y },
+    ]);
   }
 
   if (routeMode === 'secondary') {
-    if (start.y === targetPoint.y || start.x === targetPoint.x) {
-      pushOrthogonalSegment(lines, start.x, start.y, targetPoint.x, targetPoint.y);
-      return lines;
+    if (start.y === targetCenter.y || start.x === targetCenter.x) {
+      return routeFromPoints([start, { x: targetCenter.x, y: targetCenter.y }]);
     }
-    pushOrthogonalSegment(lines, start.x, start.y, targetPoint.x, start.y);
-    pushOrthogonalSegment(lines, targetPoint.x, start.y, targetPoint.x, targetPoint.y);
-    return lines;
+    return routeFromPoints([
+      start,
+      { x: targetCenter.x, y: start.y },
+      { x: targetCenter.x, y: targetCenter.y },
+    ]);
   }
 
-  if (start.y === targetPoint.y || start.x === targetPoint.x) {
-    pushOrthogonalSegment(lines, start.x, start.y, targetPoint.x, targetPoint.y);
-    return lines;
+  if (start.y === targetCenter.y || start.x === targetCenter.x) {
+    return routeFromPoints([start, { x: targetCenter.x, y: targetCenter.y }]);
   }
-  pushOrthogonalSegment(lines, start.x, start.y, start.x, targetPoint.y);
-  pushOrthogonalSegment(lines, start.x, targetPoint.y, targetPoint.x, targetPoint.y);
-  return lines;
+  return routeFromPoints([
+    start,
+    { x: start.x, y: targetCenter.y },
+    { x: targetCenter.x, y: targetCenter.y },
+  ]);
 }
 
 function validatePointerPlacement(params: {
@@ -350,13 +469,13 @@ function buildCandidate(params: {
   markerCenter: Point;
   markerBounds: Rect;
   targetPoint: Point;
+  targetEntrySide: ConnectorEntrySide;
   lines: StraightConnectorLine[];
   totalLineLength: number;
   axisDistance: number;
 } | null {
   const { itemId, target, side, markerDiameter, outsideGap, axisOffset, artworkBounds, routeMode } = params;
   const markerRadius = markerDiameter / 2;
-  const targetPoint = getTargetEdgePoint(side, target.targetBounds);
   const markerCenter = getMarkerCenterOutsideArtwork({
     side,
     targetCenter: target.targetCenter,
@@ -366,14 +485,19 @@ function buildCandidate(params: {
     axisOffset,
   });
   const markerBounds = getMarkerBounds(markerCenter, markerDiameter);
-  const lines = buildConnectorLines({
+  const routed = buildConnectorLines({
     side,
     markerCenter,
     markerRadius,
-    targetPoint,
+    itemId,
+    markerIndex: target.markerIndex,
+    targetBounds: target.targetBounds,
+    targetCenter: target.targetCenter,
     artworkBounds,
     routeMode,
   });
+  if (!routed) return null;
+  const { lines, targetPoint, targetEntrySide } = routed;
 
   if (
     !validatePointerPlacement({
@@ -395,6 +519,7 @@ function buildCandidate(params: {
     markerCenter,
     markerBounds,
     targetPoint,
+    targetEntrySide,
     lines,
     totalLineLength: lines.reduce((sum, line) => sum + lineLength(line), 0),
     axisDistance:

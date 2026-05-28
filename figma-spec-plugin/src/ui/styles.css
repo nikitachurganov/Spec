@@ -220,7 +220,7 @@ body {
   background: transparent;
   border: none;
   box-shadow: none;
-  padding: 0;
+  padding: 16px;
 }
 
 .decomposition-panel {

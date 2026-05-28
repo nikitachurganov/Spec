@@ -161,6 +161,24 @@ export type StraightConnectorLine = {
   y2: number;
 };
 
+export type ConnectorEntrySide = 'left' | 'right' | 'top' | 'bottom';
+
+export type ConnectorRoutePoint = Point;
+
+export type ConnectorRouteSegment = {
+  from: ConnectorRoutePoint;
+  to: ConnectorRoutePoint;
+  orientation: 'horizontal' | 'vertical';
+};
+
+export type ConnectorRoute = {
+  itemId: string;
+  markerIndex: number;
+  segments: ConnectorRouteSegment[];
+  targetEntrySide: ConnectorEntrySide;
+  targetPoint: Point;
+};
+
 export type ConnectorObstacle = {
   id: string;
   kind: 'accent' | 'target' | 'marker';

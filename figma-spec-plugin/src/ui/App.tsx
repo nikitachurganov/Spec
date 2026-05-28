@@ -150,7 +150,16 @@ export function App() {
       if (data.type === 'SPEC_LAYER_OPTIONS_ERROR') {
         setSpecLayerOptionsLoading(false);
         // Keep previous decomposition context visible on transient selection errors.
-        setSpecLayerOptionsError(data.payload.message || SPEC_LAYER_EMPTY_HINT);
+        const nextMessage = data.payload.message || SPEC_LAYER_EMPTY_HINT;
+        setSpecLayerOptionsError(nextMessage);
+        const isNoSourceSelection =
+          nextMessage.includes('Выберите компонент или фрейм') ||
+          nextMessage.includes('Выберите компонент, фрейм или инстанс');
+        if (isNoSourceSelection) {
+          setSpecLayerRootId(null);
+          setSpecPreviewPayload(null);
+          setAnatomyPreviewPayload(null);
+        }
         return;
       }
 
@@ -278,7 +287,7 @@ export function App() {
   const handleAnatomyLayerSelectionChange = useCallback((selectedLayerPaths: string[]) => {
     setSettings((prev) => ({
       ...prev,
-      componentAnatomy: true,
+      componentAnatomy: selectedLayerPaths.length > 0 ? true : prev.componentAnatomy,
       anatomySelectedLayerPaths: selectedLayerPaths,
     }));
     postToMain({

@@ -295,7 +295,8 @@ figma.ui.onmessage = async (raw: unknown) => {
         const current = await loadStoredSettings();
         const next = normalizePluginSettings({
           ...current,
-          componentAnatomy: true,
+          componentAnatomy:
+            message.payload.selectedLayerPaths.length > 0 ? true : current.componentAnatomy,
           anatomySelectedLayerPaths: message.payload.selectedLayerPaths,
         });
         await saveStoredSettings(next);

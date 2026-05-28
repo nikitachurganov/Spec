@@ -21,6 +21,10 @@ type Rect = {
   height: number;
 };
 
+type PngExportSettings = ExportSettingsImage & {
+  useAbsoluteBounds?: boolean;
+};
+
 function getCoordinateSpace(rootNode: SceneNode): PreviewCoordinateSpace {
   const rootBox = rootNode.absoluteBoundingBox;
   if (
@@ -199,10 +203,13 @@ export async function buildAnatomyPreviewPayload(
   params: BuildAnatomyPreviewPayloadParams
 ): Promise<AnatomyPreviewPayload> {
   const coordinateSpace = getCoordinateSpace(params.rootNode);
-  const exportBytes = await params.rootNode.exportAsync({
+  const exportSettings: PngExportSettings = {
     format: 'PNG',
     constraint: { type: 'SCALE', value: 1 },
-  });
+    // Keep PNG crop aligned with absoluteBoundingBox coordinate space.
+    useAbsoluteBounds: true,
+  };
+  const exportBytes = await params.rootNode.exportAsync(exportSettings);
   const imageDataUrl = createPngDataUrl(exportBytes);
 
   return {

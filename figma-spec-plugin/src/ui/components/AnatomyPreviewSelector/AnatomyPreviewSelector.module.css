@@ -41,6 +41,11 @@
   padding: 0 8px;
 }
 
+.controlBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .zoomText {
   color: #4e4e4e;
   font-size: 12px;
@@ -53,15 +58,41 @@
   position: relative;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.04);
-  padding: 8px;
+  padding: 0;
   overflow: hidden;
   flex: 1 1 auto;
   min-height: 0;
 }
 
+.viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding: 0;
+}
+
+.viewport::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 4px #ffffff;
+}
+
+.transformLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  user-select: none;
+  padding: 0;
+}
+
 .canvas {
   position: relative;
-  user-select: none;
+  padding: 0;
+  margin: 0;
 }
 
 .image {
@@ -69,14 +100,18 @@
   left: 0;
   top: 0;
   display: block;
-  width: 100%;
-  height: 100%;
-  border-radius: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 .hotspotLayer {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
 }
 
 .overlay {
@@ -87,13 +122,6 @@
 
 .overlayPanning {
   cursor: grabbing;
-}
-
-.viewport {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
 }
 
 .hotspot {
@@ -148,6 +176,33 @@
 }
 
 .fallback {
+  margin: 0;
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 130%;
+}
+
+.placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  padding: 16px;
+}
+
+.placeholderTitle {
+  margin: 0;
+  color: #333333;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 130%;
+}
+
+.placeholderDescription {
   margin: 0;
   color: #8c8c8c;
   font-size: 12px;

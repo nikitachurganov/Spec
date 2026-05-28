@@ -57,6 +57,21 @@ function toTreeNodeData(items: SpecLayerTreeNode[]): TreeNodeData[] {
   }));
 }
 
+function collectDefaultExpandedKeys(nodes: TreeNodeData[], depth = 0): string[] {
+  const keys: string[] = [];
+  for (const node of nodes) {
+    const children = node.children ?? [];
+    const hasChildren = children.length > 0;
+    if (!hasChildren) continue;
+    // Keep the tree readable on open while preserving manual collapse state later.
+    if (depth <= 1) {
+      keys.push(node.key);
+    }
+    keys.push(...collectDefaultExpandedKeys(children, depth + 1));
+  }
+  return keys;
+}
+
 export function SpecLayerMultiSelect({
   options,
   selectedPaths,
@@ -76,10 +91,11 @@ export function SpecLayerMultiSelect({
 }: SpecLayerMultiSelectProps) {
   const tree = useMemo(() => buildTree(options), [options]);
   const treeData = useMemo(() => toTreeNodeData(tree), [tree]);
+  const defaultExpandedKeys = useMemo(() => collectDefaultExpandedKeys(treeData), [treeData]);
 
   const [expandedPathsByRoot, setExpandedPathsByRoot] = useState<Record<string, string[]>>({});
   const expansionKey = rootId ?? '__default__';
-  const expandedKeys = expandedPathsByRoot[expansionKey] ?? options.map((o) => o.path);
+  const expandedKeys = expandedPathsByRoot[expansionKey] ?? defaultExpandedKeys;
 
   return (
     <section className="spec-layer-settings">

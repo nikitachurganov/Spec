@@ -18,7 +18,8 @@ export type AnatomyPreviewSelectorProps = {
   title?: string;
   showTitle?: boolean;
   selectedCountLabel?: string;
-  fallbackText?: string;
+  emptyStateTitle?: string;
+  emptyStateDescription?: string;
 };
 
 type InteractionState = {
@@ -106,9 +107,14 @@ export function AnatomyPreviewSelector({
   title = 'Превью',
   showTitle = true,
   selectedCountLabel,
-  fallbackText = 'Preview is unavailable. Use the layer tree to select items.',
+  emptyStateTitle = 'Превью недоступно',
+  emptyStateDescription = 'Используйте дерево для выбора элементов.',
 }: AnatomyPreviewSelectorProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const transformLayerRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const hotspotLayerRef = useRef<HTMLDivElement | null>(null);
   const interactionRef = useRef<InteractionState | null>(null);
   const scaleRef = useRef(1);
   const panRef = useRef({ x: 0, y: 0 });
@@ -122,6 +128,8 @@ export function AnatomyPreviewSelector({
   const [isPanning, setIsPanning] = useState(false);
   const [spacePressed, setSpacePressed] = useState(false);
   const [previewHovered, setPreviewHovered] = useState(false);
+  const previewPayload = payload;
+  const hasPreview = Boolean(previewPayload?.imageDataUrl);
 
   const selectableHotspots = useMemo(
     () => (payload?.hotspots || []).filter((spot) => spot.selectable),
@@ -164,6 +172,50 @@ export function AnatomyPreviewSelector({
   }, []);
 
   useEffect(() => {
+    if (!DEBUG_PREVIEW_COORDS) return;
+    if (!previewPayload?.imageDataUrl) return;
+    const viewport = viewportRef.current;
+    const transformLayer = transformLayerRef.current;
+    const canvas = canvasRef.current;
+    const image = imageRef.current;
+    const hotspotLayer = hotspotLayerRef.current;
+    if (!viewport || !transformLayer || !canvas || !image || !hotspotLayer) return;
+    const viewportRect = viewport.getBoundingClientRect();
+    const transformRect = transformLayer.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const imageRect = image.getBoundingClientRect();
+    const hotspotLayerRect = hotspotLayer.getBoundingClientRect();
+    console.table({
+      imageWidth: previewPayload.imageWidth,
+      imageHeight: previewPayload.imageHeight,
+      coordinateOriginX: previewPayload.coordinateSpace?.originX,
+      coordinateOriginY: previewPayload.coordinateSpace?.originY,
+      viewportLeft: viewportRect.left,
+      viewportTop: viewportRect.top,
+      transformLeft: transformRect.left,
+      transformTop: transformRect.top,
+      canvasLeft: canvasRect.left,
+      canvasTop: canvasRect.top,
+      imageLeft: imageRect.left,
+      imageTop: imageRect.top,
+      hotspotLayerLeft: hotspotLayerRect.left,
+      hotspotLayerTop: hotspotLayerRect.top,
+      scale,
+      panX: pan.x,
+      panY: pan.y,
+    });
+    const firstSelected = selectableHotspots.find((spot) => selectedSet.has(spot.path));
+    if (firstSelected) {
+      console.log('[Preview coords] selected hotspot', {
+        path: firstSelected.path,
+        bounds: firstSelected.bounds,
+        expectedScreenX: viewportRect.left + pan.x + firstSelected.bounds.x * scale,
+        expectedScreenY: viewportRect.top + pan.y + firstSelected.bounds.y * scale,
+      });
+    }
+  }, [pan.x, pan.y, previewPayload, scale, selectableHotspots, selectedSet]);
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.code !== 'Space') return;
       if (isEditableTarget(event.target)) return;
@@ -182,8 +234,6 @@ export function AnatomyPreviewSelector({
       window.removeEventListener('keyup', onKeyUp);
     };
   }, [previewHovered, isPanning]);
-
-  const previewPayload = payload;
 
   function fitToViewport() {
     if (!previewPayload || !previewPayload.imageDataUrl) return;
@@ -351,14 +401,6 @@ export function AnatomyPreviewSelector({
     };
   }, []);
 
-  if (!previewPayload || !previewPayload.imageDataUrl) {
-    return (
-      <div className={styles.root}>
-        <p className={styles.fallback}>{fallbackText}</p>
-      </div>
-    );
-  }
-
   return (
     <div className={styles.root}>
       <div className={styles.header}>
@@ -369,6 +411,7 @@ export function AnatomyPreviewSelector({
           <button
             type="button"
             className={styles.controlBtn}
+            disabled={!hasPreview}
             onClick={() => {
               const viewport = viewportRef.current;
               if (!viewport) return;
@@ -382,6 +425,7 @@ export function AnatomyPreviewSelector({
           <button
             type="button"
             className={styles.controlBtn}
+            disabled={!hasPreview}
             onClick={() => {
               const viewport = viewportRef.current;
               if (!viewport) return;
@@ -394,6 +438,7 @@ export function AnatomyPreviewSelector({
           <button
             type="button"
             className={styles.controlBtn}
+            disabled={!hasPreview}
             onClick={() => {
               setFitMode(true);
             }}
@@ -414,74 +459,102 @@ export function AnatomyPreviewSelector({
             }
           }}
         >
-          <div
-            className={styles.canvas}
-            style={{
-              width: `${previewPayload.imageWidth}px`,
-              height: `${previewPayload.imageHeight}px`,
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-              transformOrigin: '0 0',
-            }}
-          >
-            <img
-              src={previewPayload.imageDataUrl}
-              alt="Anatomy preview"
-              className={styles.image}
-              draggable={false}
+          {hasPreview && previewPayload ? (
+            <div
+              ref={transformLayerRef}
+              className={styles.transformLayer}
               style={{
-                width: `${previewPayload.imageWidth}px`,
-                height: `${previewPayload.imageHeight}px`,
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
               }}
-            />
-            <div className={styles.hotspotLayer}>
-              {selectableHotspots.map((spot) => {
-                const left = spot.bounds.x;
-                const top = spot.bounds.y;
-                const width = spot.bounds.width;
-                const height = spot.bounds.height;
-                const selected = selectedSet.has(spot.path);
-                const hovered = hoveredPath === spot.path;
-                return (
+            >
+              <div
+                ref={canvasRef}
+                className={styles.canvas}
+                style={{
+                  width: `${previewPayload.imageWidth}px`,
+                  height: `${previewPayload.imageHeight}px`,
+                }}
+              >
+                <img
+                  ref={imageRef}
+                  src={previewPayload.imageDataUrl}
+                  alt="Anatomy preview"
+                  className={styles.image}
+                  draggable={false}
+                  style={{
+                    width: `${previewPayload.imageWidth}px`,
+                    height: `${previewPayload.imageHeight}px`,
+                  }}
+                />
+                <div
+                  ref={hotspotLayerRef}
+                  className={styles.hotspotLayer}
+                  style={{
+                    width: `${previewPayload.imageWidth}px`,
+                    height: `${previewPayload.imageHeight}px`,
+                  }}
+                >
+                  {selectableHotspots.map((spot) => {
+                    const left = spot.bounds.x;
+                    const top = spot.bounds.y;
+                    const width = spot.bounds.width;
+                    const height = spot.bounds.height;
+                    const selected = selectedSet.has(spot.path);
+                    const hovered = hoveredPath === spot.path;
+                    return (
+                      <div
+                        key={spot.path}
+                        className={[
+                          styles.hotspot,
+                          selected ? styles.hotspotSelected : '',
+                          hovered ? styles.hotspotHover : '',
+                        ].join(' ')}
+                        title={spot.displayName}
+                        style={{
+                          left: `${left}px`,
+                          top: `${top}px`,
+                          width: `${width}px`,
+                          height: `${height}px`,
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+                <div
+                  className={`${styles.overlay} ${isPanning ? styles.overlayPanning : ''}`}
+                  onPointerMove={onOverlayPointerMove}
+                  onMouseLeave={() => setHoveredPath(null)}
+                  onPointerDown={onOverlayPointerDown}
+                  onPointerUp={onOverlayPointerUp}
+                  onPointerCancel={onOverlayPointerCancel}
+                  style={{
+                    cursor: isPanning
+                      ? 'grabbing'
+                      : spacePressed
+                        ? 'grab'
+                        : hoveredPath
+                          ? 'pointer'
+                          : 'default',
+                  }}
+                />
+                {DEBUG_PREVIEW_COORDS ? (
                   <div
-                    key={spot.path}
-                    className={[
-                      styles.hotspot,
-                      selected ? styles.hotspotSelected : '',
-                      hovered ? styles.hotspotHover : '',
-                    ].join(' ')}
-                    title={spot.displayName}
                     style={{
-                      left: `${left}px`,
-                      top: `${top}px`,
-                      width: `${width}px`,
-                      height: `${height}px`,
+                      position: 'absolute',
+                      inset: 0,
+                      outline: '1px solid rgba(0, 120, 255, 0.65)',
+                      pointerEvents: 'none',
                     }}
                   />
-                );
-              })}
+                ) : null}
+              </div>
             </div>
-            <div
-              className={`${styles.overlay} ${isPanning ? styles.overlayPanning : ''}`}
-              onPointerMove={onOverlayPointerMove}
-              onMouseLeave={() => setHoveredPath(null)}
-              onPointerDown={onOverlayPointerDown}
-              onPointerUp={onOverlayPointerUp}
-              onPointerCancel={onOverlayPointerCancel}
-              style={{
-                cursor: isPanning ? 'grabbing' : spacePressed ? 'grab' : hoveredPath ? 'pointer' : 'default',
-              }}
-            />
-            {DEBUG_PREVIEW_COORDS ? (
-              <div
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  outline: '1px solid rgba(0, 120, 255, 0.65)',
-                  pointerEvents: 'none',
-                }}
-              />
-            ) : null}
-          </div>
+          ) : (
+            <div className={styles.placeholder}>
+              <p className={styles.placeholderTitle}>{emptyStateTitle}</p>
+              <p className={styles.placeholderDescription}>{emptyStateDescription}</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

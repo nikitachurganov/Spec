@@ -27,6 +27,7 @@ export function AnatomyCombinedSelector({
   onSelectedPathsChange,
   onResetToAuto,
 }: AnatomyCombinedSelectorProps) {
+  const hasSource = Boolean(rootId);
   return (
     <section className={styles.root}>
       <div className={styles.splitArea}>
@@ -37,6 +38,12 @@ export function AnatomyCombinedSelector({
             onSelectedPathsChange={onSelectedPathsChange}
             showTitle={false}
             selectedCountLabel={`Выбрано: ${selectedPaths.length} эл.`}
+            emptyStateTitle={hasSource ? 'Превью недоступно' : 'Выберите слой'}
+            emptyStateDescription={
+              hasSource
+                ? 'Используйте дерево для выбора элементов.'
+                : 'Выберите фрейм, компонент или инстанс на холсте, чтобы увидеть превью.'
+            }
           />
         </div>
         <div className={styles.decompositionDivider} />

@@ -27,6 +27,7 @@ export function SpecCombinedSelector({
   onSelectedPathsChange,
   onResetToAuto,
 }: SpecCombinedSelectorProps) {
+  const hasSource = Boolean(rootId);
   return (
     <section className={styles.root}>
       <div className={styles.splitArea}>
@@ -38,7 +39,12 @@ export function SpecCombinedSelector({
             purpose="spec"
             showTitle={false}
             selectedCountLabel={`Выбрано: ${selectedPaths.length} эл.`}
-            fallbackText="Preview is unavailable. Use the layer tree to select Spec containers."
+            emptyStateTitle={hasSource ? 'Превью недоступно' : 'Выберите слой'}
+            emptyStateDescription={
+              hasSource
+                ? 'Используйте дерево для выбора Spec-контейнеров.'
+                : 'Выберите фрейм, компонент или инстанс на холсте, чтобы увидеть превью.'
+            }
           />
         </div>
         <div className={styles.decompositionDivider} />
