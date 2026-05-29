@@ -17,6 +17,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { StatusMessage } from './components/StatusMessage';
 
 const NO_BLOCKS_ERROR = 'Выберите хотя бы один блок спецификации.';
+const NO_SOURCE_TREE_HINT = 'Компонент не выбран';
 const SPEC_LAYER_EMPTY_HINT =
   'Выберите компонент или фрейм, чтобы настроить слои для Spec.';
 const ANATOMY_LAYER_EMPTY_HINT =
@@ -152,20 +153,31 @@ export function App() {
         return;
       }
 
+      if (data.type === 'ACTIVE_SOURCE_CLEARED') {
+        setSpecLayerOptionsLoading(false);
+        setSpecLayerOptionsError(null);
+        setSpecLayerRootId(null);
+        setSpecLayerRootName(null);
+        setSpecLayerOptions([]);
+        setSpecPreviewPayload(null);
+        setAnatomyPreviewPayload(null);
+        setSettings((prev) => ({
+          ...prev,
+          specSelectedLayerPaths: [],
+          anatomySelectedLayerPaths: [],
+        }));
+        return;
+      }
+
+      if (data.type === 'SOURCE_CONTEXT_LOADING') {
+        setSpecLayerOptionsLoading(true);
+        setSpecLayerOptionsError(null);
+        return;
+      }
+
       if (data.type === 'SPEC_LAYER_OPTIONS_ERROR') {
         setSpecLayerOptionsLoading(false);
-        // Keep previous decomposition context visible on transient selection errors.
-        const nextMessage = data.payload.message || SPEC_LAYER_EMPTY_HINT;
-        setSpecLayerOptionsError(nextMessage);
-        const isNoSourceSelection =
-          nextMessage.includes('Выберите компонент или фрейм') ||
-          nextMessage.includes('Выберите компонент, фрейм или инстанс');
-        if (isNoSourceSelection) {
-          setSpecLayerRootId(null);
-          setSpecLayerRootName(null);
-          setSpecPreviewPayload(null);
-          setAnatomyPreviewPayload(null);
-        }
+        setSpecLayerOptionsError(data.payload.message || SPEC_LAYER_EMPTY_HINT);
         return;
       }
 
@@ -327,7 +339,11 @@ export function App() {
   const isSpecEnabled = Boolean(settings.spec);
   const isAnatomyEnabled = Boolean(settings.componentAnatomy);
   const hasSource = Boolean(specLayerRootId);
-  const startDisabled = !hasSource || !hasAnySpecificationBlock(settings);
+  const startDisabled =
+    !hasSource ||
+    !hasAnySpecificationBlock(settings) ||
+    busy ||
+    specLayerOptionsLoading;
 
   const enableHeaderBlock = useCallback(() => {
     handleSettingsChange({ ...settings, header: true });
@@ -421,7 +437,7 @@ export function App() {
                       selectedPaths={hasSource ? settings.anatomySelectedLayerPaths : []}
                       isLoading={hasSource ? specLayerOptionsLoading : false}
                       error={hasSource ? specLayerOptionsError : null}
-                      emptyHint={ANATOMY_LAYER_EMPTY_HINT}
+                      emptyHint={hasSource ? ANATOMY_LAYER_EMPTY_HINT : NO_SOURCE_TREE_HINT}
                       rootId={specLayerRootId}
                       onSelectedPathsChange={handleAnatomyLayerSelectionChange}
                       onResetToAuto={handleResetAnatomyLayersToAuto}
@@ -442,7 +458,7 @@ export function App() {
                       selectedPaths={hasSource ? settings.specSelectedLayerPaths : []}
                       isLoading={hasSource ? specLayerOptionsLoading : false}
                       error={hasSource ? specLayerOptionsError : null}
-                      emptyHint={SPEC_LAYER_EMPTY_HINT}
+                      emptyHint={hasSource ? SPEC_LAYER_EMPTY_HINT : NO_SOURCE_TREE_HINT}
                       rootId={specLayerRootId}
                       onSelectedPathsChange={handleSpecLayerSelectionChange}
                       onResetToAuto={handleResetSpecLayersToAuto}

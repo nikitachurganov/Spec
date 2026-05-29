@@ -41,11 +41,16 @@ export function Button({
       aria-label={loading ? 'Собираю...' : undefined}
       onClick={onClick}
     >
+      <span
+        className={joinClassNames(styles.label, loading && styles.contentHidden)}
+      >
+        {children}
+      </span>
       {loading ? (
-        <span className={styles.spinner} aria-hidden="true" />
-      ) : (
-        <span className={styles.label}>{children}</span>
-      )}
+        <span className={styles.spinnerSlot} aria-hidden="true">
+          <span className={styles.spinner} />
+        </span>
+      ) : null}
     </button>
   );
 }

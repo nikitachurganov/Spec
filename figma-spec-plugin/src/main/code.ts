@@ -13,6 +13,7 @@ const MIN_UI_WIDTH = 360;
 const MIN_UI_HEIGHT = 520;
 const MAX_UI_WIDTH = 900;
 const MAX_UI_HEIGHT = 1000;
+const SOURCE_SELECTION_DEBOUNCE_MS = 500;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -47,8 +48,9 @@ function areStringArraysEqual(a: string[], b: string[]): boolean {
 const GENERATED_DOC_NAME_PREFIXES = ['DS specification'] as const;
 
 let activeSourceNodeId: string | null = null;
-let selectionChangeTicket = 0;
-let uiContextRequestTicket = 0;
+let pendingSourceNodeId: string | null = null;
+let selectionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let selectionRequestId = 0;
 
 function isSceneNode(node: BaseNode | null): node is SceneNode {
   if (!node) return false;
@@ -104,6 +106,11 @@ function findValidSourceCandidate(selection: readonly SceneNode[]): SceneNode | 
   return null;
 }
 
+function selectionIsOnlyGeneratedDocumentation(selection: readonly SceneNode[]): boolean {
+  if (selection.length === 0) return false;
+  return selection.every((node) => isGeneratedDocumentationNode(node));
+}
+
 async function getNodeByIdSafe(id: string): Promise<SceneNode | null> {
   try {
     const node = await figma.getNodeByIdAsync(id);
@@ -122,10 +129,23 @@ async function resolveActiveSourceNode(): Promise<SceneNode | null> {
   return node;
 }
 
-async function postNoSourceState(): Promise<void> {
+function clearSelectionDebounceTimer(): void {
+  if (selectionDebounceTimer !== null) {
+    clearTimeout(selectionDebounceTimer);
+    selectionDebounceTimer = null;
+  }
+}
+
+function cancelPendingSourceLoad(): void {
+  clearSelectionDebounceTimer();
+  pendingSourceNodeId = null;
+  selectionRequestId += 1;
+}
+
+async function postNoSourceState(reason: string): Promise<void> {
   postToUi({
-    type: 'SPEC_LAYER_OPTIONS_ERROR',
-    payload: { message: 'Выберите компонент или фрейм, чтобы настроить слои для Spec.' },
+    type: 'ACTIVE_SOURCE_CLEARED',
+    payload: { reason },
   });
 }
 
@@ -135,7 +155,7 @@ async function postSpecLayerOptionsForSource(
 ): Promise<boolean> {
   const settings = await loadStoredSettings();
   const result = await handleGetSpecLayerOptions(settings, sourceNode);
-  if (requestTicket !== uiContextRequestTicket) {
+  if (requestTicket !== selectionRequestId) {
     return false;
   }
   if (!result.ok) {
@@ -179,39 +199,109 @@ async function postSpecLayerOptionsForSource(
   return true;
 }
 
-async function resolveSourceFromSelectionOrActive(): Promise<SceneNode | null> {
-  const candidate = findValidSourceCandidate(figma.currentPage.selection);
-  if (candidate) {
-    activeSourceNodeId = candidate.id;
-    return candidate;
+async function clearActiveSource(reason: string): Promise<void> {
+  cancelPendingSourceLoad();
+
+  activeSourceNodeId = null;
+
+  const settings = await loadStoredSettings();
+  const cleared = normalizePluginSettings({
+    ...settings,
+    specSelectedLayerPaths: [],
+    anatomySelectedLayerPaths: [],
+  });
+  await saveStoredSettings(cleared);
+
+  postToUi({ type: 'SETTINGS_LOADED', payload: { settings: cleared } });
+  await postNoSourceState(reason);
+}
+
+function scheduleSourceChange(candidate: SceneNode): void {
+  if (candidate.id === activeSourceNodeId) {
+    clearSelectionDebounceTimer();
+    pendingSourceNodeId = null;
+    return;
   }
-  return resolveActiveSourceNode();
+
+  pendingSourceNodeId = candidate.id;
+  clearSelectionDebounceTimer();
+
+  selectionDebounceTimer = setTimeout(() => {
+    selectionDebounceTimer = null;
+    void acceptPendingSource(candidate.id);
+  }, SOURCE_SELECTION_DEBOUNCE_MS);
+}
+
+async function acceptPendingSource(sourceNodeId: string): Promise<void> {
+  const requestId = ++selectionRequestId;
+  pendingSourceNodeId = null;
+
+  const node = await getNodeByIdSafe(sourceNodeId);
+  if (!node || !isValidDocumentationSource(node)) {
+    if (requestId === selectionRequestId) {
+      await clearActiveSource('pending-source-invalid');
+    }
+    return;
+  }
+
+  const selection = figma.currentPage.selection;
+  const currentCandidate = findValidSourceCandidate(selection);
+  if (currentCandidate?.id !== sourceNodeId) {
+    if (requestId !== selectionRequestId) return;
+    if (selection.length === 0) {
+      await clearActiveSource('empty-selection');
+      return;
+    }
+    if (selectionIsOnlyGeneratedDocumentation(selection)) {
+      return;
+    }
+    if (!currentCandidate) {
+      await clearActiveSource('no-valid-source');
+      return;
+    }
+    scheduleSourceChange(currentCandidate);
+    return;
+  }
+
+  if (requestId !== selectionRequestId) return;
+
+  postToUi({ type: 'SOURCE_CONTEXT_LOADING' });
+
+  const settings = await loadStoredSettings();
+  const clearedForNewSource = normalizePluginSettings({
+    ...settings,
+    specSelectedLayerPaths: [],
+    anatomySelectedLayerPaths: [],
+  });
+  await saveStoredSettings(clearedForNewSource);
+  postToUi({ type: 'SETTINGS_LOADED', payload: { settings: clearedForNewSource } });
+
+  activeSourceNodeId = node.id;
+
+  await postSpecLayerOptionsForSource(node, requestId);
 }
 
 async function handleSelectionChange(): Promise<void> {
-  const ticket = ++selectionChangeTicket;
-  const requestTicket = ++uiContextRequestTicket;
-  const candidate = findValidSourceCandidate(figma.currentPage.selection);
+  const selection = figma.currentPage.selection;
 
-  if (candidate) {
-    activeSourceNodeId = candidate.id;
-    await postSpecLayerOptionsForSource(candidate, requestTicket);
+  if (selection.length === 0) {
+    await clearActiveSource('empty-selection');
     return;
   }
 
-  const activeSource = await resolveActiveSourceNode();
-  if (ticket !== selectionChangeTicket) return;
-  if (activeSource) {
-    // Keep current UI state when selection is empty or points to generated docs.
+  const candidate = findValidSourceCandidate(selection);
+
+  if (!candidate) {
+    if (selectionIsOnlyGeneratedDocumentation(selection)) {
+      clearSelectionDebounceTimer();
+      pendingSourceNodeId = null;
+      return;
+    }
+    await clearActiveSource('no-valid-source');
     return;
   }
 
-  if (activeSourceNodeId) {
-    console.warn('[Selection] Active source node is no longer available. Clearing plugin state.');
-  }
-  activeSourceNodeId = null;
-  if (requestTicket !== uiContextRequestTicket) return;
-  await postNoSourceState();
+  scheduleSourceChange(candidate);
 }
 
 figma.showUI(__html__, {
@@ -223,13 +313,14 @@ void (async () => {
   const settings = await loadStoredSettings();
   postToUi({ type: 'SETTINGS_LOADED', payload: { settings } });
   const source = findValidSourceCandidate(figma.currentPage.selection);
-  const requestTicket = ++uiContextRequestTicket;
+  const requestTicket = ++selectionRequestId;
   if (source) {
     activeSourceNodeId = source.id;
     await postSpecLayerOptionsForSource(source, requestTicket);
   } else {
-    if (requestTicket !== uiContextRequestTicket) return;
-    await postNoSourceState();
+    if (requestTicket === selectionRequestId) {
+      await postNoSourceState('startup-no-source');
+    }
   }
   postToUi({ type: 'READY' });
 })();
@@ -256,7 +347,7 @@ figma.ui.onmessage = async (raw: unknown) => {
       case 'BUILD_SPECIFICATION': {
         const settings = normalizePluginSettings(message.payload.settings);
         await saveStoredSettings(settings);
-        const source = await resolveSourceFromSelectionOrActive();
+        const source = await resolveActiveSourceNode();
         if (!source) {
           postToUi({
             type: 'ERROR',
@@ -264,19 +355,18 @@ figma.ui.onmessage = async (raw: unknown) => {
           });
           break;
         }
-        activeSourceNodeId = source.id;
         await buildSpecification(settings, source);
         break;
       }
       case 'GET_SPEC_LAYER_OPTIONS': {
-        const requestTicket = ++uiContextRequestTicket;
-        const source = await resolveSourceFromSelectionOrActive();
+        const requestTicket = ++selectionRequestId;
+        const source = await resolveActiveSourceNode();
         if (!source) {
-          if (requestTicket !== uiContextRequestTicket) break;
-          await postNoSourceState();
+          if (requestTicket !== selectionRequestId) break;
+          await postNoSourceState('manual-refresh-no-source');
           break;
         }
-        activeSourceNodeId = source.id;
+        postToUi({ type: 'SOURCE_CONTEXT_LOADING' });
         await postSpecLayerOptionsForSource(source, requestTicket);
         break;
       }

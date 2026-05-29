@@ -110,6 +110,17 @@ export type SpecLayerOptionsErrorMessage = {
   };
 };
 
+export type ActiveSourceClearedMessage = {
+  type: 'ACTIVE_SOURCE_CLEARED';
+  payload: {
+    reason: string;
+  };
+};
+
+export type SourceContextLoadingMessage = {
+  type: 'SOURCE_CONTEXT_LOADING';
+};
+
 export type ReadyMessage = {
   type: 'READY';
 };
@@ -120,4 +131,6 @@ export type MainToUiMessage =
   | SettingsLoadedMessage
   | SpecLayerOptionsLoadedMessage
   | SpecLayerOptionsErrorMessage
+  | ActiveSourceClearedMessage
+  | SourceContextLoadingMessage
   | ReadyMessage;

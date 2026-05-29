@@ -1,22 +1,28 @@
 .button {
   box-sizing: border-box;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 16px;
   border: none;
   border-radius: 8px;
   font-family: 'PT Sans', sans-serif;
   font-size: 14px;
   font-weight: 700;
   line-height: 130%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
+  /* No background transition — gradient ↔ solid cannot interpolate and causes hover lag. */
   transition:
-    background 120ms ease,
-    border-color 120ms ease,
+    background-color 120ms ease,
     color 120ms ease,
-    opacity 120ms ease,
-    transform 80ms ease;
+    box-shadow 120ms ease,
+    border-color 120ms ease;
 }
 
 .button:focus-visible {
@@ -25,67 +31,96 @@
 }
 
 .button:disabled {
-  cursor: not-allowed;
+  cursor: default;
 }
+
+/* ── Primary ─────────────────────────────────────────────────────────────── */
 
 .primary {
-  min-width: 88px;
-  height: 36px;
-  padding: 0 12px;
+  --button-primary-bg: linear-gradient(133deg, #fc8507 0%, #ffa218 100%);
+
   color: #ffffff;
-  background: linear-gradient(133deg, #fc8507 0%, #ffa218 100%);
+  background: var(--button-primary-bg);
 }
 
-.primary:hover:not(:disabled):not(.loading) {
-  background: linear-gradient(133deg, #e87806 0%, #f09516 100%);
+.primary:hover:not(:disabled):not(.loading),
+.primary:not(.disabled):not(.loading):hover {
+  background: #ffa319;
 }
 
-.primary:active:not(:disabled):not(.loading) {
-  background: linear-gradient(133deg, #d56f05 0%, #e08a12 100%);
-  transform: translateY(1px);
+.primary:active:not(:disabled):not(.loading),
+.primary:not(.disabled):not(.loading):active {
+  background: var(--button-primary-bg);
+  box-shadow: 0 0 0 2px rgba(252, 133, 7, 0.2);
 }
 
+.primary:disabled:not(.loading),
 .primary.disabled:not(.loading) {
-  opacity: 0.6;
+  background: #f2f2f2;
+  color: #afafaf;
+  cursor: default;
+  box-shadow: none;
+  opacity: 1;
 }
 
-.primary.loading {
+.primary.loading,
+.primary.loading:hover,
+.primary.loading:active {
+  background: var(--button-primary-bg);
+  color: transparent;
   opacity: 1;
-  cursor: not-allowed;
+  cursor: default;
+  pointer-events: none;
+  box-shadow: none;
 }
+
+/* ── Secondary ───────────────────────────────────────────────────────────── */
 
 .secondary {
-  min-width: 88px;
-  height: 36px;
-  padding: 0 12px;
-  color: #333333;
-  background: #ffffff;
-  border: 1px solid #d9d9d9;
-}
-
-.secondary:hover:not(:disabled):not(.loading) {
+  height: 44px;
+  width: auto;
+  min-width: 0;
+  padding: 0 16px;
   background: #f7f7f7;
-  border-color: #c7c7c7;
+  color: #333333;
+  font-size: 16px;
+  line-height: 140%;
+  font-weight: 400;
+  border: none;
+  border-radius: 12px;
 }
 
-.secondary:active:not(:disabled):not(.loading) {
-  background: #efefef;
-  border-color: #b4b4b4;
-  transform: translateY(1px);
+.secondary:hover:not(:disabled):not(.loading),
+.secondary:not(.disabled):not(.loading):hover {
+  background: #eeeeee;
 }
 
+.secondary:active:not(:disabled):not(.loading),
+.secondary:not(.disabled):not(.loading):active {
+  background: #eeeeee;
+}
+
+.secondary:disabled:not(.loading),
 .secondary.disabled:not(.loading) {
-  opacity: 0.45;
+  background: #f2f2f2;
+  color: #afafaf;
+  cursor: default;
+  opacity: 1;
 }
 
-.secondary.loading {
+.secondary.loading,
+.secondary.loading:hover,
+.secondary.loading:active {
+  background: #f7f7f7;
   opacity: 1;
-  cursor: not-allowed;
+  cursor: default;
+  pointer-events: none;
 }
+
+/* ── Link ──────────────────────────────────────────────────────────────────── */
 
 .link {
   min-width: 0;
-  height: auto;
   padding: 0;
   color: #007de3;
   background: transparent;
@@ -109,24 +144,53 @@
   cursor: not-allowed;
 }
 
+/* ── Shared label / spinner ─────────────────────────────────────────────────── */
+
 .label {
   display: inline-flex;
   align-items: center;
 }
 
+.contentHidden {
+  visibility: hidden;
+}
+
+.spinnerSlot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: transparent;
+}
+
 .spinner {
   width: 28px;
   height: 28px;
+  box-sizing: border-box;
   border: 4px solid rgba(255, 255, 255, 0.35);
   border-top-color: #ffffff;
   border-radius: 50%;
+  background: transparent;
   animation: buttonSpinner 0.8s linear infinite;
   flex-shrink: 0;
 }
 
+.spinner::before,
+.spinner::after {
+  content: none;
+  display: none;
+}
+
 .secondary.loading .spinner {
-  border-color: rgba(51, 51, 51, 0.2);
+  border: 4px solid rgba(51, 51, 51, 0.2);
   border-top-color: #333333;
+  background: transparent;
 }
 
 @keyframes buttonSpinner {

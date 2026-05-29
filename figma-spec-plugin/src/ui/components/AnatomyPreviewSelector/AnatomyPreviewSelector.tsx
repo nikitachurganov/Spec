@@ -9,6 +9,8 @@ import {
 import type { AnatomyPreviewHotspot, AnatomyPreviewPayload } from '@shared/anatomyPreview';
 import imgNotFound from '../../assets/imgNotFound.png?inline';
 import { Button } from '../Button';
+import { Stepper } from '../Stepper';
+import { calculateFitTransform } from '../../utils/calculateFitTransform';
 import styles from './AnatomyPreviewSelector.module.css';
 
 const DEBUG_PREVIEW_COORDS = false;
@@ -214,8 +216,7 @@ export function AnatomyPreviewSelector({
   const isPreviewInteractive = hasSource && hasPreview;
   const showNoSourcePlaceholder = !hasSource;
   const selectedCount = hasSource ? selectedPaths.length : 0;
-  const selectedCountText =
-    selectedCountLabel || `Выбрано: ${selectedCount} эл.`;
+  void selectedCountLabel;
   const zoomLabel = hasPreview ? `${Math.round(scale * 100)}%` : '100%';
 
   const selectableHotspots = useMemo(
@@ -386,15 +387,16 @@ export function AnatomyPreviewSelector({
   function fitToViewport() {
     if (!previewPayload || !previewPayload.imageDataUrl) return;
     if (!viewportWidth || !viewportHeight) return;
-    const sx = viewportWidth / Math.max(1, previewPayload.imageWidth);
-    const sy = viewportHeight / Math.max(1, previewPayload.imageHeight);
-    const nextScale = Math.max(0.1, Math.min(3, Math.min(sx, sy)));
-    const width = previewPayload.imageWidth * nextScale;
-    const height = previewPayload.imageHeight * nextScale;
-    setScale(nextScale);
+    const { scale, panX, panY } = calculateFitTransform({
+      viewportWidth,
+      viewportHeight,
+      imageWidth: previewPayload.imageWidth,
+      imageHeight: previewPayload.imageHeight,
+    });
+    setScale(scale);
     setPan({
-      x: Math.round((viewportWidth - width) / 2),
-      y: Math.round((viewportHeight - height) / 2),
+      x: Math.round(panX),
+      y: Math.round(panY),
     });
   }
 
@@ -628,11 +630,16 @@ export function AnatomyPreviewSelector({
   }, [isPreviewInteractive]);
 
   return (
-    <div className={styles.root}>
+    <section className={styles.previewBlock}>
       <div className={styles.previewTitle}>Канвас</div>
 
-      <div className={styles.previewToolbar}>
-        <div className={styles.selectedCount}>{selectedCountText}</div>
+      <div className={styles.selectionToolbar}>
+        <div className={styles.selectionText}>
+          <span>Выбрано:</span>
+          <span>
+            {selectedCount} эл.
+          </span>
+        </div>
         <Button
           variant="secondary"
           className={styles.toolbarButton}
@@ -643,27 +650,28 @@ export function AnatomyPreviewSelector({
         </Button>
       </div>
 
-      <div className={styles.previewCard}>
-        <div
-          ref={viewportRef}
-          className={`${styles.previewViewport} ${!isPreviewInteractive ? styles.previewViewportDisabled : ''}`}
-          onMouseEnter={() => {
-            if (!isPreviewInteractive) return;
-            pointerInsidePreviewRef.current = true;
-            setPreviewHovered(true);
-          }}
-          onMouseLeave={() => {
-            pointerInsidePreviewRef.current = false;
-            lastPointerRef.current = null;
-            setHoveredPath(null);
-            setPreviewHovered(false);
-          }}
-          onAuxClick={(event) => {
-            if (event.button === 1) {
-              event.preventDefault();
-            }
-          }}
-        >
+      <div className={styles.preview}>
+        <div className={styles.previewContent}>
+          <div
+            ref={viewportRef}
+            className={`${styles.previewViewport} ${!isPreviewInteractive ? styles.previewViewportDisabled : ''}`}
+            onMouseEnter={() => {
+              if (!isPreviewInteractive) return;
+              pointerInsidePreviewRef.current = true;
+              setPreviewHovered(true);
+            }}
+            onMouseLeave={() => {
+              pointerInsidePreviewRef.current = false;
+              lastPointerRef.current = null;
+              setHoveredPath(null);
+              setPreviewHovered(false);
+            }}
+            onAuxClick={(event) => {
+              if (event.button === 1) {
+                event.preventDefault();
+              }
+            }}
+          >
           {hasPreview && previewPayload ? (
             <div
               ref={transformLayerRef}
@@ -790,38 +798,36 @@ export function AnatomyPreviewSelector({
               <p className={styles.placeholderDescription}>{emptyStateDescription}</p>
             </div>
           )}
+          </div>
         </div>
 
-        <div className={styles.previewBottomTools}>
-          <div className={styles.controls}>
-            <button
-              type="button"
-              className={styles.controlBtn}
-              disabled={!isPreviewInteractive}
-              onClick={() => {
-                const viewport = viewportRef.current;
-                if (!viewport) return;
-                const rect = viewport.getBoundingClientRect();
-                zoomAroundClient(rect.left + rect.width / 2, rect.top + rect.height / 2, effectiveScale - 0.25);
-              }}
-            >
-              -
-            </button>
-            <span className={styles.zoomText}>{zoomLabel}</span>
-            <button
-              type="button"
-              className={styles.controlBtn}
-              disabled={!isPreviewInteractive}
-              onClick={() => {
-                const viewport = viewportRef.current;
-                if (!viewport) return;
-                const rect = viewport.getBoundingClientRect();
-                zoomAroundClient(rect.left + rect.width / 2, rect.top + rect.height / 2, effectiveScale + 0.25);
-              }}
-            >
-              +
-            </button>
-          </div>
+        <div className={styles.zoomToolbar}>
+          <Stepper
+            value={zoomLabel}
+            disabled={!isPreviewInteractive}
+            minusAriaLabel="Уменьшить масштаб"
+            plusAriaLabel="Увеличить масштаб"
+            onMinus={() => {
+              const viewport = viewportRef.current;
+              if (!viewport) return;
+              const rect = viewport.getBoundingClientRect();
+              zoomAroundClient(
+                rect.left + rect.width / 2,
+                rect.top + rect.height / 2,
+                effectiveScale - 0.25
+              );
+            }}
+            onPlus={() => {
+              const viewport = viewportRef.current;
+              if (!viewport) return;
+              const rect = viewport.getBoundingClientRect();
+              zoomAroundClient(
+                rect.left + rect.width / 2,
+                rect.top + rect.height / 2,
+                effectiveScale + 0.25
+              );
+            }}
+          />
           <Button
             variant="secondary"
             className={styles.bottomToolsButton}
@@ -834,6 +840,6 @@ export function AnatomyPreviewSelector({
           </Button>
         </div>
       </div>
-    </div>
+    </section>
   );
 }

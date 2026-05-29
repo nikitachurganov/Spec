@@ -1,10 +1,11 @@
-.root {
+.previewBlock {
   display: flex;
   flex-direction: column;
   gap: 4px;
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
+  padding: 16px;
 }
 
 .previewTitle {
@@ -17,16 +18,19 @@
   color: #333333;
 }
 
-.previewToolbar {
+.selectionToolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
   width: 100%;
   flex: 0 0 auto;
 }
 
-.selectedCount {
+.selectionText {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: #8c8c8c;
   font-family: 'PT Sans', sans-serif;
   font-size: 12px;
@@ -34,23 +38,30 @@
 }
 
 .toolbarButton {
-  height: 28px;
   min-width: 0;
-  padding: 0 8px;
-  font-size: 12px;
-  font-weight: 400;
 }
 
-.previewCard {
+.preview {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
+  border-radius: 8px;
+  background: #f7f7f7;
   border: 1px solid #eae8e8;
-  border-radius: 6px;
   overflow: hidden;
-  background: #ffffff;
+}
+
+.previewContent {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 16px;
+  overflow: hidden;
+  background: #f7f7f7;
 }
 
 .previewViewport {
@@ -59,19 +70,13 @@
   min-height: 0;
   width: 100%;
   overflow: hidden;
-  padding: 0;
-  background: rgba(0, 0, 0, 0.04);
 }
 
-.previewViewport::after {
-  content: '';
-  position: absolute;
-  inset: 0;
+.previewViewportDisabled {
   pointer-events: none;
-  box-shadow: inset 0 0 0 4px #ffffff;
 }
 
-.previewBottomTools {
+.zoomToolbar {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -82,48 +87,8 @@
   border-top: 1px solid #eae8e8;
 }
 
-.controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.controlBtn {
-  height: 28px;
-  min-width: 28px;
-  border: 1px solid #d9d9d9;
-  background: #ffffff;
-  color: #333333;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 8px;
-}
-
-.controlBtn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.zoomText {
-  color: #4e4e4e;
-  font-size: 12px;
-  line-height: 130%;
-  min-width: 44px;
-  text-align: center;
-}
-
 .bottomToolsButton {
-  height: 28px;
   min-width: 0;
-  padding: 0 8px;
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.previewViewportDisabled {
-  pointer-events: none;
 }
 
 .previewPlaceholder {
@@ -135,7 +100,6 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 16px;
   text-align: center;
   color: #8c8c8c;
 }
@@ -288,7 +252,6 @@
   justify-content: center;
   text-align: center;
   gap: 8px;
-  padding: 16px;
 }
 
 .placeholderTitle {
