@@ -37,14 +37,10 @@ export function SpecCombinedSelector({
             selectedPaths={selectedPaths}
             onSelectedPathsChange={onSelectedPathsChange}
             purpose="spec"
-            showTitle={false}
-            selectedCountLabel={`Выбрано: ${selectedPaths.length} эл.`}
-            emptyStateTitle={hasSource ? 'Превью недоступно' : 'Выберите слой'}
-            emptyStateDescription={
-              hasSource
-                ? 'Используйте дерево для выбора Spec-контейнеров.'
-                : 'Выберите фрейм, компонент или инстанс на холсте, чтобы увидеть превью.'
-            }
+            hasSource={hasSource}
+            onClearSelection={onResetToAuto}
+            emptyStateTitle="Превью недоступно"
+            emptyStateDescription="Используйте дерево для выбора Spec-контейнеров."
           />
         </div>
         <div className={styles.decompositionDivider} />
@@ -53,8 +49,8 @@ export function SpecCombinedSelector({
             options={options}
             selectedPaths={selectedPaths}
             isLoading={isLoading}
-            error={error}
-            emptyHint={emptyHint}
+            error={hasSource ? error : null}
+            emptyHint={hasSource ? emptyHint : 'Компонент не выбран'}
             onChange={onSelectedPathsChange}
             onResetToAuto={onResetToAuto}
             rootId={rootId}

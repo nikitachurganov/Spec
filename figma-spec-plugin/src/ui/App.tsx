@@ -9,6 +9,9 @@ import type { MainToUiMessage, SpecLayerOption } from '@shared/messages';
 import type { AnatomyPreviewPayload } from '@shared/anatomyPreview';
 import { postToMain } from './postToMain';
 import { AnatomyCombinedSelector } from './components/AnatomyCombinedSelector/AnatomyCombinedSelector';
+import { Button } from './components/Button';
+import { DecompositionTabs, type DecompositionTabId } from './components/DecompositionTabs';
+import { EmptyTabState } from './components/EmptyTabState';
 import { SpecCombinedSelector } from './components/SpecCombinedSelector/SpecCombinedSelector';
 import { SettingsPanel } from './components/SettingsPanel';
 import { StatusMessage } from './components/StatusMessage';
@@ -32,11 +35,11 @@ function unwrapMainPayload(raw: unknown): unknown {
   return raw;
 }
 
-type DecompositionPurpose = 'spec' | 'anatomy';
+type DecompositionTab = DecompositionTabId;
 
 function filterDecompositionOptionsForPurpose(
   options: SpecLayerOption[],
-  purpose: DecompositionPurpose
+  purpose: 'spec' | 'anatomy'
 ): SpecLayerOption[] {
   const byPath = new Map(options.map((option) => [option.path, option]));
   const includeSet = new Set<string>();
@@ -95,13 +98,12 @@ export function App() {
   const [specLayerOptionsLoading, setSpecLayerOptionsLoading] = useState(false);
   const [specLayerOptionsError, setSpecLayerOptionsError] = useState<string | null>(null);
   const [specLayerRootId, setSpecLayerRootId] = useState<string | null>(null);
+  const [specLayerRootName, setSpecLayerRootName] = useState<string | null>(null);
   const [specPreviewPayload, setSpecPreviewPayload] =
     useState<AnatomyPreviewPayload | null>(null);
   const [anatomyPreviewPayload, setAnatomyPreviewPayload] =
     useState<AnatomyPreviewPayload | null>(null);
-  const [activeDecompositionTab, setActiveDecompositionTab] = useState<DecompositionPurpose | null>(
-    'spec'
-  );
+  const [activeDecompositionTab, setActiveDecompositionTab] = useState<DecompositionTab>('header');
   const [uiSize, setUiSize] = useState(() => ({
     width: window.innerWidth,
     height: window.innerHeight,
@@ -138,6 +140,7 @@ export function App() {
         setSpecLayerOptionsLoading(false);
         setSpecLayerOptionsError(null);
         setSpecLayerRootId(data.payload.rootId);
+        setSpecLayerRootName(data.payload.rootName);
         setSpecLayerOptions(data.payload.options);
         setSpecPreviewPayload(data.payload.specPreviewPayload);
         setAnatomyPreviewPayload(data.payload.anatomyPreviewPayload);
@@ -159,6 +162,7 @@ export function App() {
           nextMessage.includes('Выберите компонент, фрейм или инстанс');
         if (isNoSourceSelection) {
           setSpecLayerRootId(null);
+          setSpecLayerRootName(null);
           setSpecPreviewPayload(null);
           setAnatomyPreviewPayload(null);
         }
@@ -319,49 +323,42 @@ export function App() {
     () => filterDecompositionOptionsForPurpose(specLayerOptions, 'anatomy'),
     [specLayerOptions]
   );
+  const isHeaderEnabled = Boolean(settings.header);
   const isSpecEnabled = Boolean(settings.spec);
   const isAnatomyEnabled = Boolean(settings.componentAnatomy);
+  const hasSource = Boolean(specLayerRootId);
+  const startDisabled = !hasSource || !hasAnySpecificationBlock(settings);
 
-  useEffect(() => {
-    if (activeDecompositionTab === 'spec' && !isSpecEnabled) {
-      setActiveDecompositionTab(isAnatomyEnabled ? 'anatomy' : null);
-      return;
-    }
-    if (activeDecompositionTab === 'anatomy' && !isAnatomyEnabled) {
-      setActiveDecompositionTab(isSpecEnabled ? 'spec' : null);
-      return;
-    }
-    if (activeDecompositionTab === null) {
-      if (isSpecEnabled) {
-        setActiveDecompositionTab('spec');
-      } else if (isAnatomyEnabled) {
-        setActiveDecompositionTab('anatomy');
-      }
-    }
-  }, [activeDecompositionTab, isAnatomyEnabled, isSpecEnabled]);
+  const enableHeaderBlock = useCallback(() => {
+    handleSettingsChange({ ...settings, header: true });
+  }, [handleSettingsChange, settings]);
+
+  const enableAnatomyBlock = useCallback(() => {
+    handleSettingsChange({ ...settings, componentAnatomy: true });
+  }, [handleSettingsChange, settings]);
+
+  const enableSpecBlock = useCallback(() => {
+    handleSettingsChange({ ...settings, spec: true });
+  }, [handleSettingsChange, settings]);
+
+  const headerTitle = hasSource
+    ? `Выбран: ${specLayerRootName || 'компонент'}`
+    : 'Выберите компонент';
 
   return (
     <div className="app">
       <header className="app-header">
         <div className="plugin-header">
-          <span className="plugin-header__title">Выберите компоненты</span>
+          <span className="plugin-header__title">{headerTitle}</span>
           <div className="plugin-header__action">
-          <button
-            type="button"
-            className="start-banner__button"
-            disabled={busy}
-            onClick={handleGenerate}
-            data-hierarchy="primary"
-            data-size="small 36 px"
-            data-state={busy ? 'loading' : 'default'}
-            data-istoggled="false"
-            data-icon-left="false"
-            data-icon-right="false"
-          >
-            <span className="start-banner__button-text">
-              {busy ? 'Собираю...' : 'Начать'}
-            </span>
-          </button>
+            <Button
+              variant="primary"
+              disabled={startDisabled}
+              loading={busy}
+              onClick={handleGenerate}
+            >
+              Начать
+            </Button>
           </div>
         </div>
       </header>
@@ -387,67 +384,70 @@ export function App() {
               <h2 className="plugin-block-title">Декомпозиция</h2>
             </div>
             <div className="plugin-panel-body">
-              <div className="decomposition-tabs" role="tablist" aria-label="Decomposition tabs">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeDecompositionTab === 'spec'}
-                  aria-disabled={!isSpecEnabled}
-                  disabled={!isSpecEnabled}
-                  className={`decomposition-tab ${activeDecompositionTab === 'spec' ? 'is-active' : ''}`}
-                  onClick={() => {
-                    if (!isSpecEnabled) return;
-                    setActiveDecompositionTab('spec');
-                  }}
-                >
-                  Spec
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeDecompositionTab === 'anatomy'}
-                  aria-disabled={!isAnatomyEnabled}
-                  disabled={!isAnatomyEnabled}
-                  className={`decomposition-tab ${activeDecompositionTab === 'anatomy' ? 'is-active' : ''}`}
-                  onClick={() => {
-                    if (!isAnatomyEnabled) return;
-                    setActiveDecompositionTab('anatomy');
-                  }}
-                >
-                  Анатомия
-                </button>
-              </div>
+              <DecompositionTabs
+                activeTab={activeDecompositionTab}
+                onTabChange={setActiveDecompositionTab}
+              />
               <div className="decomposition-content">
-                {activeDecompositionTab === null ? (
-                  <div className="decomposition-empty-state">
-                    Включите Spec или Анатомию, чтобы настроить декомпозицию.
-                  </div>
+                {activeDecompositionTab === 'header' ? (
+                  !isHeaderEnabled ? (
+                    <EmptyTabState
+                      description="Включите блок Header, чтобы указать основную информацию о компоненте."
+                      actionLabel="Включить Header"
+                      onAction={enableHeaderBlock}
+                    />
+                  ) : !hasSource ? (
+                    <EmptyTabState
+                      description="После выбора вы сможете указать основную информацию о компоненте."
+                    />
+                  ) : (
+                    <EmptyTabState
+                      title="Блок Header включен"
+                      description="Основная информация о компоненте будет добавлена в документацию."
+                    />
+                  )
                 ) : null}
-                {activeDecompositionTab === 'spec' && isSpecEnabled ? (
-                  <SpecCombinedSelector
-                    options={specOptions}
-                    preview={specPreviewPayload}
-                    selectedPaths={settings.specSelectedLayerPaths}
-                    isLoading={specLayerOptionsLoading}
-                    error={specLayerOptionsError}
-                    emptyHint={SPEC_LAYER_EMPTY_HINT}
-                    rootId={specLayerRootId}
-                    onSelectedPathsChange={handleSpecLayerSelectionChange}
-                    onResetToAuto={handleResetSpecLayersToAuto}
-                  />
+                {activeDecompositionTab === 'anatomy' ? (
+                  !isAnatomyEnabled ? (
+                    <EmptyTabState
+                      description="Включите блок Anatomy, чтобы выбрать элементы, которые нужно отметить указателями."
+                      actionLabel="Включить Anatomy"
+                      onAction={enableAnatomyBlock}
+                    />
+                  ) : (
+                    <AnatomyCombinedSelector
+                      options={hasSource ? anatomyOptions : []}
+                      preview={hasSource ? anatomyPreviewPayload : null}
+                      selectedPaths={hasSource ? settings.anatomySelectedLayerPaths : []}
+                      isLoading={hasSource ? specLayerOptionsLoading : false}
+                      error={hasSource ? specLayerOptionsError : null}
+                      emptyHint={ANATOMY_LAYER_EMPTY_HINT}
+                      rootId={specLayerRootId}
+                      onSelectedPathsChange={handleAnatomyLayerSelectionChange}
+                      onResetToAuto={handleResetAnatomyLayersToAuto}
+                    />
+                  )
                 ) : null}
-                {activeDecompositionTab === 'anatomy' && isAnatomyEnabled ? (
-                  <AnatomyCombinedSelector
-                    options={anatomyOptions}
-                    preview={anatomyPreviewPayload}
-                    selectedPaths={settings.anatomySelectedLayerPaths}
-                    isLoading={specLayerOptionsLoading}
-                    error={specLayerOptionsError}
-                    emptyHint={ANATOMY_LAYER_EMPTY_HINT}
-                    rootId={specLayerRootId}
-                    onSelectedPathsChange={handleAnatomyLayerSelectionChange}
-                    onResetToAuto={handleResetAnatomyLayersToAuto}
-                  />
+                {activeDecompositionTab === 'spec' ? (
+                  !isSpecEnabled ? (
+                    <EmptyTabState
+                      description="Включите блок Spec, чтобы выбрать контейнеры для спецификации отступов, размеров и gap."
+                      actionLabel="Включить Spec"
+                      onAction={enableSpecBlock}
+                    />
+                  ) : (
+                    <SpecCombinedSelector
+                      options={hasSource ? specOptions : []}
+                      preview={hasSource ? specPreviewPayload : null}
+                      selectedPaths={hasSource ? settings.specSelectedLayerPaths : []}
+                      isLoading={hasSource ? specLayerOptionsLoading : false}
+                      error={hasSource ? specLayerOptionsError : null}
+                      emptyHint={SPEC_LAYER_EMPTY_HINT}
+                      rootId={specLayerRootId}
+                      onSelectedPathsChange={handleSpecLayerSelectionChange}
+                      onResetToAuto={handleResetSpecLayersToAuto}
+                    />
+                  )
                 ) : null}
               </div>
             </div>

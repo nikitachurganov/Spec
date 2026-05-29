@@ -68,44 +68,6 @@ body {
   align-items: center;
 }
 
-.start-banner__button {
-  height: 36px;
-  padding: 0 12px;
-  border: none;
-  border-radius: 8px;
-  background: linear-gradient(
-    133deg,
-    var(--Button-Start, #fc8507) 0%,
-    var(--Button-End, #ffa218) 100%
-  );
-  overflow: hidden;
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.start-banner__button-text {
-  color: var(--Text-Contrast, #ffffff);
-  font-size: 14px;
-  font-family: 'PT Sans', sans-serif;
-  font-weight: 700;
-  line-height: 18.2px;
-  word-wrap: break-word;
-}
-
-.start-banner__button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.start-banner__button:focus-visible {
-  outline: 2px solid #003f8a;
-  outline-offset: 2px;
-}
-
 .app-content {
   flex: 1 1 auto;
   min-height: 0;
@@ -164,7 +126,7 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 0;
 }
 
 .plugin-panel-right .plugin-panel-body {
@@ -241,54 +203,6 @@ body {
   min-height: 0;
   flex: 1 1 auto;
   overflow: auto;
-}
-
-.decomposition-tabs {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 36px;
-  padding: 8px 8px 0 8px;
-  border-bottom: 1px solid #eae8e8;
-  background: transparent;
-  margin: 0;
-}
-
-.decomposition-tab {
-  min-height: 32px;
-  border-radius: 0;
-  padding: 8px 12px;
-  border: none;
-  border-bottom: 1px solid transparent;
-  background: transparent;
-  color: #4e4e4e;
-  font-family: 'PT Sans', sans-serif;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 130%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  margin: 0;
-}
-
-.decomposition-tab.is-active {
-  border-bottom-color: #fc8507;
-  background: transparent;
-  color: #333333;
-  font-weight: 700;
-}
-
-.decomposition-tab:focus-visible {
-  outline: 2px solid rgba(0, 0, 0, 0.06);
-  outline-offset: 1px;
-}
-
-.decomposition-tab:disabled,
-.decomposition-tab[aria-disabled='true'] {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 .decomposition-empty-state {

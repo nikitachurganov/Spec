@@ -1,0 +1,33 @@
+.link {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #007de3;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 130%;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
+}
+
+.link:hover:not(:disabled) {
+  color: #ff9741;
+}
+
+.link:active:not(:disabled) {
+  color: #e87806;
+}
+
+.link:focus-visible {
+  outline: 2px solid rgba(0, 125, 227, 0.35);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.link:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

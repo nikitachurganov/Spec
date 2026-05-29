@@ -36,14 +36,10 @@ export function AnatomyCombinedSelector({
             payload={preview}
             selectedPaths={selectedPaths}
             onSelectedPathsChange={onSelectedPathsChange}
-            showTitle={false}
-            selectedCountLabel={`Выбрано: ${selectedPaths.length} эл.`}
-            emptyStateTitle={hasSource ? 'Превью недоступно' : 'Выберите слой'}
-            emptyStateDescription={
-              hasSource
-                ? 'Используйте дерево для выбора элементов.'
-                : 'Выберите фрейм, компонент или инстанс на холсте, чтобы увидеть превью.'
-            }
+            hasSource={hasSource}
+            onClearSelection={onResetToAuto}
+            emptyStateTitle="Превью недоступно"
+            emptyStateDescription="Используйте дерево для выбора элементов."
           />
         </div>
         <div className={styles.decompositionDivider} />
@@ -52,8 +48,8 @@ export function AnatomyCombinedSelector({
             options={options}
             selectedPaths={selectedPaths}
             isLoading={isLoading}
-            error={error}
-            emptyHint={emptyHint}
+            error={hasSource ? error : null}
+            emptyHint={hasSource ? emptyHint : 'Компонент не выбран'}
             onChange={onSelectedPathsChange}
             onResetToAuto={onResetToAuto}
             rootId={rootId}
