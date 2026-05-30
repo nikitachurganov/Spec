@@ -1,0 +1,79 @@
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: none;
+  background: #f7f7f7;
+  color: #a7a5a5;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background-color 120ms ease;
+}
+
+.iconButton:focus-visible {
+  outline: 2px solid #003f8a;
+  outline-offset: 2px;
+}
+
+.iconButton:not(:disabled):hover {
+  background: #eeeeee;
+}
+
+.iconButton:not(:disabled):active {
+  background: #eeeeee;
+}
+
+.iconButton:disabled {
+  background: #f2f2f2;
+  color: #d2d1d1;
+  opacity: 1;
+  cursor: default;
+}
+
+.iconButton:disabled:hover,
+.iconButton:disabled:active {
+  background: #f2f2f2;
+  color: #d2d1d1;
+}
+
+.tiny {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 8px;
+}
+
+.small {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 8px;
+}
+
+.medium {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 8px;
+}
+
+.icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: currentColor;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}

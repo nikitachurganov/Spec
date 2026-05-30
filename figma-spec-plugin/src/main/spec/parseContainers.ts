@@ -9,6 +9,7 @@ import {
   parseSpacing as parseSpacingAsync,
 } from './parseSpacing';
 import { indexPathToKey } from './nodePathUtils';
+import { filterSelectedLayerPathsForProcessing } from '../../shared/layerPaths';
 
 export type TokenizedSpacing = {
   value: number;
@@ -335,7 +336,7 @@ export async function parseContainers(
   root: SceneNode,
   options: ParseContainersOptions = {}
 ): Promise<ContainerSpec[]> {
-  const selected = (options.selectedLayerPaths || []).filter(Boolean);
+  const selected = filterSelectedLayerPathsForProcessing(options.selectedLayerPaths);
   const selectedSet = selected.length > 0 ? new Set(selected) : null;
   const decomposition = options.decomposition ?? (await buildDecompositionTree(root));
 

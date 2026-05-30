@@ -117,8 +117,20 @@ export type ActiveSourceClearedMessage = {
   };
 };
 
-export type SourceContextLoadingMessage = {
-  type: 'SOURCE_CONTEXT_LOADING';
+export type ActiveSourcePendingMessage = {
+  type: 'ACTIVE_SOURCE_PENDING';
+  payload: {
+    sourceNodeId: string;
+    sourceName: string;
+  };
+};
+
+export type ActiveSourceLoadingMessage = {
+  type: 'ACTIVE_SOURCE_LOADING';
+  payload: {
+    sourceNodeId: string;
+    sourceName: string;
+  };
 };
 
 export type ReadyMessage = {
@@ -132,5 +144,6 @@ export type MainToUiMessage =
   | SpecLayerOptionsLoadedMessage
   | SpecLayerOptionsErrorMessage
   | ActiveSourceClearedMessage
-  | SourceContextLoadingMessage
+  | ActiveSourcePendingMessage
+  | ActiveSourceLoadingMessage
   | ReadyMessage;

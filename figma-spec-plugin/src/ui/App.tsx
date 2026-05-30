@@ -7,6 +7,7 @@ import {
 } from '@shared/settings';
 import type { MainToUiMessage, SpecLayerOption } from '@shared/messages';
 import type { AnatomyPreviewPayload } from '@shared/anatomyPreview';
+import { logSelectionPersistence } from '@shared/layerPaths';
 import { postToMain } from './postToMain';
 import { AnatomyCombinedSelector } from './components/AnatomyCombinedSelector/AnatomyCombinedSelector';
 import { Button } from './components/Button';
@@ -69,14 +70,7 @@ function filterDecompositionOptionsForPurpose(
       ...option,
       isSelectable:
         purpose === 'anatomy'
-          ? option.isRoot ||
-            option.isText ||
-            option.isSelectable ||
-            option.kind === 'slot' ||
-            option.kind === 'icon' ||
-            option.kind === 'badge' ||
-            option.kind === 'divider' ||
-            option.kind === 'action'
+          ? option.isSelectable
           : option.isSelectable && !option.isText,
     }));
 }
@@ -129,6 +123,10 @@ export function App() {
       if (!isMainMessage(data)) return;
 
       if (data.type === 'SETTINGS_LOADED') {
+        logSelectionPersistence('settings-loaded', {
+          specSelectedLayerPaths: data.payload.settings.specSelectedLayerPaths,
+          anatomySelectedLayerPaths: data.payload.settings.anatomySelectedLayerPaths,
+        });
         setSettings(withHiddenSpecificationPreferences(data.payload.settings));
         return;
       }
@@ -145,6 +143,10 @@ export function App() {
         setSpecLayerOptions(data.payload.options);
         setSpecPreviewPayload(data.payload.specPreviewPayload);
         setAnatomyPreviewPayload(data.payload.anatomyPreviewPayload);
+        logSelectionPersistence('layer-options-loaded', {
+          specSelectedLayerPaths: data.payload.specSelectedLayerPaths,
+          anatomySelectedLayerPaths: data.payload.anatomySelectedLayerPaths,
+        });
         setSettings((prev) => ({
           ...prev,
           specSelectedLayerPaths: data.payload.specSelectedLayerPaths,
@@ -169,9 +171,30 @@ export function App() {
         return;
       }
 
-      if (data.type === 'SOURCE_CONTEXT_LOADING') {
+      if (data.type === 'ACTIVE_SOURCE_PENDING') {
         setSpecLayerOptionsLoading(true);
         setSpecLayerOptionsError(null);
+        setSpecLayerRootId(data.payload.sourceNodeId);
+        setSpecLayerRootName(data.payload.sourceName);
+        setSpecLayerOptions([]);
+        setSpecPreviewPayload(null);
+        setAnatomyPreviewPayload(null);
+        setSettings((prev) => ({
+          ...prev,
+          specSelectedLayerPaths: [],
+          anatomySelectedLayerPaths: [],
+        }));
+        return;
+      }
+
+      if (data.type === 'ACTIVE_SOURCE_LOADING') {
+        setSpecLayerOptionsLoading(true);
+        setSpecLayerOptionsError(null);
+        setSpecLayerRootId(data.payload.sourceNodeId);
+        setSpecLayerRootName(data.payload.sourceName);
+        setSpecLayerOptions([]);
+        setSpecPreviewPayload(null);
+        setAnatomyPreviewPayload(null);
         return;
       }
 
@@ -278,11 +301,17 @@ export function App() {
   );
 
   const handleSpecLayerSelectionChange = useCallback((selectedLayerPaths: string[]) => {
-    setSettings((prev) => ({
-      ...prev,
-      spec: true,
-      specSelectedLayerPaths: selectedLayerPaths,
-    }));
+    setSettings((prev) => {
+      logSelectionPersistence('spec-toggle', {
+        before: prev.specSelectedLayerPaths,
+        after: selectedLayerPaths,
+      });
+      return {
+        ...prev,
+        spec: true,
+        specSelectedLayerPaths: selectedLayerPaths,
+      };
+    });
     postToMain({
       type: 'SAVE_SPEC_SELECTED_LAYERS',
       payload: { selectedLayerPaths },
@@ -312,11 +341,17 @@ export function App() {
   }, [settings, busy]);
 
   const handleAnatomyLayerSelectionChange = useCallback((selectedLayerPaths: string[]) => {
-    setSettings((prev) => ({
-      ...prev,
-      componentAnatomy: selectedLayerPaths.length > 0 ? true : prev.componentAnatomy,
-      anatomySelectedLayerPaths: selectedLayerPaths,
-    }));
+    setSettings((prev) => {
+      logSelectionPersistence('anatomy-toggle', {
+        before: prev.anatomySelectedLayerPaths,
+        after: selectedLayerPaths,
+      });
+      return {
+        ...prev,
+        componentAnatomy: selectedLayerPaths.length > 0 ? true : prev.componentAnatomy,
+        anatomySelectedLayerPaths: selectedLayerPaths,
+      };
+    });
     postToMain({
       type: 'SAVE_ANATOMY_SELECTED_LAYERS',
       payload: { selectedLayerPaths },
@@ -357,18 +392,31 @@ export function App() {
     handleSettingsChange({ ...settings, spec: true });
   }, [handleSettingsChange, settings]);
 
-  const headerTitle = hasSource
-    ? `Выбран: ${specLayerRootName || 'компонент'}`
-    : 'Выберите компонент';
+  const headerComponentName = specLayerRootName || 'компонент';
 
   return (
     <div className="app">
       <header className="app-header">
         <div className="plugin-header">
-          <span className="plugin-header__title">{headerTitle}</span>
+          <div className="plugin-header__title">
+            {!hasSource ? (
+              'Выберите компонент'
+            ) : specLayerOptionsLoading ? (
+              <>
+                <span className="plugin-header__label">Загрузка:</span>
+                <span className="plugin-header__component-name">{headerComponentName}</span>
+              </>
+            ) : (
+              <>
+                <span className="plugin-header__label">Выбран:</span>
+                <span className="plugin-header__component-name">{headerComponentName}</span>
+              </>
+            )}
+          </div>
           <div className="plugin-header__action">
             <Button
               variant="primary"
+              size="medium"
               disabled={startDisabled}
               loading={busy}
               onClick={handleGenerate}
@@ -432,10 +480,10 @@ export function App() {
                     />
                   ) : (
                     <AnatomyCombinedSelector
-                      options={hasSource ? anatomyOptions : []}
-                      preview={hasSource ? anatomyPreviewPayload : null}
+                      options={hasSource && !specLayerOptionsLoading ? anatomyOptions : []}
+                      preview={hasSource && !specLayerOptionsLoading ? anatomyPreviewPayload : null}
                       selectedPaths={hasSource ? settings.anatomySelectedLayerPaths : []}
-                      isLoading={hasSource ? specLayerOptionsLoading : false}
+                      isLoading={specLayerOptionsLoading}
                       error={hasSource ? specLayerOptionsError : null}
                       emptyHint={hasSource ? ANATOMY_LAYER_EMPTY_HINT : NO_SOURCE_TREE_HINT}
                       rootId={specLayerRootId}
@@ -453,10 +501,10 @@ export function App() {
                     />
                   ) : (
                     <SpecCombinedSelector
-                      options={hasSource ? specOptions : []}
-                      preview={hasSource ? specPreviewPayload : null}
+                      options={hasSource && !specLayerOptionsLoading ? specOptions : []}
+                      preview={hasSource && !specLayerOptionsLoading ? specPreviewPayload : null}
                       selectedPaths={hasSource ? settings.specSelectedLayerPaths : []}
-                      isLoading={hasSource ? specLayerOptionsLoading : false}
+                      isLoading={specLayerOptionsLoading}
                       error={hasSource ? specLayerOptionsError : null}
                       emptyHint={hasSource ? SPEC_LAYER_EMPTY_HINT : NO_SOURCE_TREE_HINT}
                       rootId={specLayerRootId}

@@ -1,12 +1,15 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import styles from './Button.module.css';
 
+export type ButtonSize = 'medium' | 'small';
+
 export type ButtonProps = {
   children: ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   loading?: boolean;
   variant?: 'primary' | 'secondary' | 'link';
+  size?: ButtonSize;
   className?: string;
   type?: ButtonHTMLAttributes<HTMLButtonElement>['type'];
 };
@@ -21,10 +24,12 @@ export function Button({
   disabled = false,
   loading = false,
   variant = 'primary',
+  size = 'medium',
   className,
   type = 'button',
 }: ButtonProps) {
   const isInteractiveDisabled = disabled || loading;
+  const sizeClass = size === 'small' ? styles.buttonSmall : styles.buttonMedium;
 
   return (
     <button
@@ -32,6 +37,7 @@ export function Button({
       className={joinClassNames(
         styles.button,
         styles[variant],
+        sizeClass,
         loading && styles.loading,
         disabled && !loading && styles.disabled,
         className

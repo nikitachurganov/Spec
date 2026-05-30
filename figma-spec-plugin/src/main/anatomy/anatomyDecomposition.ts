@@ -17,6 +17,7 @@ import type {
   ComponentPropertyMetadata,
 } from './anatomyTypes';
 import { mergeAnatomyOptions } from './anatomyStyles';
+import { filterSelectedLayerPathsForProcessing } from '../../shared/layerPaths';
 import { runAnatomyPipeline, runAnatomyPipelineFromCandidates } from './anatomyPipeline';
 
 const anatomyWarnedMessages = new Set<string>();
@@ -405,9 +406,7 @@ export function collectSemanticAnatomyItems(
     useComponentPropertyNames: merged.useComponentPropertyNames,
   };
 
-  const selectedLayerPaths = Array.isArray(merged.selectedLayerPaths)
-    ? merged.selectedLayerPaths.filter(Boolean)
-    : [];
+  const selectedLayerPaths = filterSelectedLayerPathsForProcessing(merged.selectedLayerPaths);
 
   const selectedCandidates =
     selectedLayerPaths.length > 0

@@ -37,12 +37,12 @@ export function AnatomyCombinedSelector({
             selectedPaths={selectedPaths}
             onSelectedPathsChange={onSelectedPathsChange}
             hasSource={hasSource}
+            isLayersLoading={Boolean(isLoading && hasSource)}
             onClearSelection={onResetToAuto}
             emptyStateTitle="Превью недоступно"
             emptyStateDescription="Используйте дерево для выбора элементов."
           />
         </div>
-        <div className={styles.decompositionDivider} />
         <div className={styles.treeWrap}>
           <SpecLayerMultiSelect
             options={options}

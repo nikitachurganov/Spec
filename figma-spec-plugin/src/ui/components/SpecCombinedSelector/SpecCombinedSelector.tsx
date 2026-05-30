@@ -38,12 +38,12 @@ export function SpecCombinedSelector({
             onSelectedPathsChange={onSelectedPathsChange}
             purpose="spec"
             hasSource={hasSource}
+            isLayersLoading={Boolean(isLoading && hasSource)}
             onClearSelection={onResetToAuto}
             emptyStateTitle="Превью недоступно"
             emptyStateDescription="Используйте дерево для выбора Spec-контейнеров."
           />
         </div>
-        <div className={styles.decompositionDivider} />
         <div className={styles.treeWrap}>
           <SpecLayerMultiSelect
             options={options}

@@ -9,6 +9,9 @@ import {
 import type { AnatomyPreviewHotspot, AnatomyPreviewPayload } from '@shared/anatomyPreview';
 import imgNotFound from '../../assets/imgNotFound.png?inline';
 import { Button } from '../Button';
+import { IconButton } from '../IconButton';
+import { NavArrowReverseLeftIcon } from '../icons';
+import { PreviewLoadingState } from '../PreviewLoadingState';
 import { Stepper } from '../Stepper';
 import { calculateFitTransform } from '../../utils/calculateFitTransform';
 import styles from './AnatomyPreviewSelector.module.css';
@@ -26,6 +29,7 @@ export type AnatomyPreviewSelectorProps = {
   selectedCountLabel?: string;
   onClearSelection?: () => void;
   hasSource?: boolean;
+  isLayersLoading?: boolean;
   emptyStateTitle?: string;
   emptyStateDescription?: string;
 };
@@ -186,6 +190,7 @@ export function AnatomyPreviewSelector({
   selectedCountLabel,
   onClearSelection,
   hasSource = true,
+  isLayersLoading = false,
   emptyStateTitle = 'Превью недоступно',
   emptyStateDescription = 'Используйте дерево для выбора элементов.',
 }: AnatomyPreviewSelectorProps) {
@@ -213,9 +218,10 @@ export function AnatomyPreviewSelector({
   const [isModifierPressed, setIsModifierPressed] = useState(false);
   const previewPayload = payload;
   const hasPreview = Boolean(previewPayload?.imageDataUrl);
-  const isPreviewInteractive = hasSource && hasPreview;
+  const isPreviewInteractive = hasSource && hasPreview && !isLayersLoading;
   const showNoSourcePlaceholder = !hasSource;
-  const selectedCount = hasSource ? selectedPaths.length : 0;
+  const showPreviewUnavailable = hasSource && !isLayersLoading && !hasPreview;
+  const selectedCount = isLayersLoading ? 0 : hasSource ? selectedPaths.length : 0;
   void selectedCountLabel;
   const zoomLabel = hasPreview ? `${Math.round(scale * 100)}%` : '100%';
 
@@ -446,7 +452,7 @@ export function AnatomyPreviewSelector({
     const candidates = getHotspotCandidatesAtPoint(clientX, clientY);
     if (!candidates.length) return null;
     if (purpose !== 'anatomy') {
-      return sortCandidates(candidates, selectedSet, purpose)[0] ?? null;
+      return sortCandidatesForNormalClick(candidates, selectedSet)[0] ?? null;
     }
     if (mode === 'deep') {
       return sortCandidatesForDeepClick(candidates, selectedSet)[0] ?? null;
@@ -463,7 +469,7 @@ export function AnatomyPreviewSelector({
     const candidates = getHotspotCandidatesAtPoint(clientX, clientY);
     if (!candidates.length) return;
     if (purpose !== 'anatomy') {
-      const candidate = sortCandidates(candidates, selectedSet, purpose)[0];
+      const candidate = sortCandidatesForNormalClick(candidates, selectedSet)[0];
       if (candidate) {
         toggleSelection(candidate.path);
       }
@@ -635,19 +641,16 @@ export function AnatomyPreviewSelector({
 
       <div className={styles.selectionToolbar}>
         <div className={styles.selectionText}>
-          <span>Выбрано:</span>
-          <span>
-            {selectedCount} эл.
-          </span>
+          <span className={styles.selectionLabel}>Выбрано:</span>
+          <span className={styles.selectionValue}>{selectedCount} эл.</span>
         </div>
-        <Button
-          variant="secondary"
-          className={styles.toolbarButton}
-          disabled={!isPreviewInteractive || selectedCount === 0 || !onClearSelection}
+        <IconButton
+          size="tiny"
+          icon={<NavArrowReverseLeftIcon />}
+          ariaLabel="Снять выделение"
           onClick={onClearSelection}
-        >
-          Снять выделение
-        </Button>
+          disabled={selectedCount === 0 || isLayersLoading || !hasSource || !onClearSelection}
+        />
       </div>
 
       <div className={styles.preview}>
@@ -672,7 +675,22 @@ export function AnatomyPreviewSelector({
               }
             }}
           >
-          {hasPreview && previewPayload ? (
+          {isLayersLoading ? (
+            <PreviewLoadingState />
+          ) : showNoSourcePlaceholder ? (
+            <div className={styles.previewPlaceholder}>
+              <img
+                src={imgNotFound}
+                alt=""
+                className={styles.previewPlaceholderImage}
+              />
+              <div className={styles.previewPlaceholderText}>
+                Выберите компонент
+                <br />
+                или фрейм
+              </div>
+            </div>
+          ) : hasPreview && previewPayload ? (
             <div
               ref={transformLayerRef}
               className={styles.transformLayer}
@@ -779,30 +797,18 @@ export function AnatomyPreviewSelector({
                 ) : null}
               </div>
             </div>
-          ) : showNoSourcePlaceholder ? (
-            <div className={styles.previewPlaceholder}>
-              <img
-                src={imgNotFound}
-                alt=""
-                className={styles.previewPlaceholderImage}
-              />
-              <div className={styles.previewPlaceholderText}>
-                Выберите компонент
-                <br />
-                или фрейм
-              </div>
-            </div>
-          ) : (
+          ) : showPreviewUnavailable ? (
             <div className={styles.placeholder}>
               <p className={styles.placeholderTitle}>{emptyStateTitle}</p>
               <p className={styles.placeholderDescription}>{emptyStateDescription}</p>
             </div>
-          )}
+          ) : null}
           </div>
         </div>
 
         <div className={styles.zoomToolbar}>
           <Stepper
+            size="small"
             value={zoomLabel}
             disabled={!isPreviewInteractive}
             minusAriaLabel="Уменьшить масштаб"
@@ -830,6 +836,7 @@ export function AnatomyPreviewSelector({
           />
           <Button
             variant="secondary"
+            size="small"
             className={styles.bottomToolsButton}
             disabled={!isPreviewInteractive}
             onClick={() => {

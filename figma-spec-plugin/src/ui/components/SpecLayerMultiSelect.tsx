@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import type { SpecLayerOption } from '@shared/messages';
+import { LoadingState } from './LoadingState';
 import { TreeView } from './TreeView/TreeView';
 import type { TreeNodeData } from './TreeView/treeTypes';
+import styles from './SpecLayerMultiSelect.module.css';
 
 type SpecLayerTreeNode = SpecLayerOption & {
   children: SpecLayerTreeNode[];
@@ -34,7 +36,7 @@ function buildTree(options: SpecLayerOption[]): SpecLayerTreeNode[] {
   }
 
   for (const node of nodeByPath.values()) {
-    if (node.parentPath) {
+    if (node.parentPath !== undefined) {
       const parent = nodeByPath.get(node.parentPath);
       if (parent) {
         parent.children.push(node);
@@ -63,13 +65,16 @@ function collectDefaultExpandedKeys(nodes: TreeNodeData[], depth = 0): string[] 
     const children = node.children ?? [];
     const hasChildren = children.length > 0;
     if (!hasChildren) continue;
-    // Keep the tree readable on open while preserving manual collapse state later.
     if (depth <= 1) {
       keys.push(node.key);
     }
     keys.push(...collectDefaultExpandedKeys(children, depth + 1));
   }
   return keys;
+}
+
+function joinClassNames(...parts: Array<string | false | undefined>): string {
+  return parts.filter(Boolean).join(' ');
 }
 
 export function SpecLayerMultiSelect({
@@ -97,9 +102,44 @@ export function SpecLayerMultiSelect({
   const expansionKey = rootId ?? '__default__';
   const expandedKeys = expandedPathsByRoot[expansionKey] ?? defaultExpandedKeys;
 
-  return (
-    <section className="spec-layer-settings">
-      {showHeader ? (
+  const treeContent = (() => {
+    if (isLoading) {
+      return <LoadingState minHeight={120} />;
+    }
+
+    if (error) {
+      return (
+        <p className={joinClassNames(styles.treeHint, styles.treeHintError)}>{error}</p>
+      );
+    }
+
+    if (options.length === 0 && emptyHint) {
+      return <p className={styles.treeHint}>{emptyHint}</p>;
+    }
+
+    if (options.length > 0) {
+      return (
+        <TreeView
+          data={treeData}
+          checkedKeys={selectedPaths}
+          expandedKeys={expandedKeys}
+          checkable={checkable}
+          cascadeSelection={cascadeSelection}
+          selectable={false}
+          onCheck={(keys) => onChange(keys)}
+          onExpand={(keys) =>
+            setExpandedPathsByRoot((prev) => ({ ...prev, [expansionKey]: keys }))
+          }
+        />
+      );
+    }
+
+    return null;
+  })();
+
+  if (showHeader) {
+    return (
+      <section className="spec-layer-settings">
         <div className="spec-layer-settings__header">
           <h2 className="spec-layer-settings__title">{title}</h2>
           {showRefresh && onRefresh ? (
@@ -113,47 +153,29 @@ export function SpecLayerMultiSelect({
             </button>
           ) : null}
         </div>
-      ) : null}
 
-      {showResetButton && onResetToAuto ? (
-        <div className="spec-layer-settings__subheader">
-          <button
-            type="button"
-            className="spec-layer-settings__reset"
-            onClick={onResetToAuto}
-            disabled={isLoading || options.length === 0}
-          >
-            Сбросить к авто
-          </button>
-        </div>
-      ) : null}
+        {showResetButton && onResetToAuto ? (
+          <div className="spec-layer-settings__subheader">
+            <button
+              type="button"
+              className="spec-layer-settings__reset"
+              onClick={onResetToAuto}
+              disabled={isLoading || options.length === 0}
+            >
+              Сбросить к авто
+            </button>
+          </div>
+        ) : null}
 
-      {isLoading ? (
-        <p className="spec-layer-settings__hint">Загрузка слоёв…</p>
-      ) : null}
+        {treeContent}
+      </section>
+    );
+  }
 
-      {error ? (
-        <p className="spec-layer-settings__hint spec-layer-settings__hint--error">{error}</p>
-      ) : null}
-
-      {!isLoading && !error && options.length === 0 && emptyHint ? (
-        <p className="spec-layer-settings__hint">{emptyHint}</p>
-      ) : null}
-
-      {!isLoading && !error && options.length > 0 ? (
-        <TreeView
-          data={treeData}
-          checkedKeys={selectedPaths}
-          expandedKeys={expandedKeys}
-          checkable={checkable}
-          cascadeSelection={cascadeSelection}
-          selectable={false}
-          onCheck={(keys) => onChange(keys)}
-          onExpand={(keys) =>
-            setExpandedPathsByRoot((prev) => ({ ...prev, [expansionKey]: keys }))
-          }
-        />
-      ) : null}
+  return (
+    <section className={styles.treeBlock}>
+      <div className={styles.treeTitle}>Слои</div>
+      <div className={styles.treeContent}>{treeContent}</div>
     </section>
   );
 }

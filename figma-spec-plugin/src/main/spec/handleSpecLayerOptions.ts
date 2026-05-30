@@ -2,6 +2,10 @@
 
 import type { PluginSettings } from '../../shared/settings';
 import type { AnatomyPreviewPayload } from '../../shared/anatomyPreview';
+import {
+  logSelectionPersistence,
+  sanitizeSelectedLayerPaths,
+} from '../../shared/layerPaths';
 import { ensureDocumentReadyForTraversal } from '../figma/documentAccess';
 import { buildAnatomyPreviewPayload } from '../anatomy/buildAnatomyPreviewPayload';
 import {
@@ -20,15 +24,17 @@ export function isSupportedRoot(node: BaseNode): node is SceneNode {
 
 function resolveSelectedPaths(
   storedPaths: string[],
-  _autoSelectedLayerPaths: string[],
-  validPaths: Set<string>
+  options: CollectSpecLayerOptionsResult['options']
 ): string[] {
-  return storedPaths.filter((p) => validPaths.has(p));
+  return sanitizeSelectedLayerPaths(storedPaths, options);
 }
 
-function resolveManualSelectedPaths(storedPaths: string[], validPaths: Set<string>): string[] {
+function resolveManualSelectedPaths(
+  storedPaths: string[],
+  options: CollectSpecLayerOptionsResult['options']
+): string[] {
   if (!storedPaths.length) return [];
-  return storedPaths.filter((p) => validPaths.has(p));
+  return sanitizeSelectedLayerPaths(storedPaths, options);
 }
 
 export type HandleSpecLayerOptionsResult =
@@ -111,17 +117,23 @@ export async function handleGetSpecLayerOptions(
   }
 
   const collected = await collectSpecLayerOptions(root);
-  const validPaths = new Set(collected.options.map((o) => o.path));
 
   const selectedLayerPaths = resolveSelectedPaths(
     settings.specSelectedLayerPaths || [],
-    collected.autoSelectedLayerPaths,
-    validPaths
+    collected.options
   );
   const anatomySelectedLayerPaths = resolveManualSelectedPaths(
     settings.anatomySelectedLayerPaths || [],
-    validPaths
+    collected.options
   );
+
+  logSelectionPersistence('resolved', {
+    specBefore: settings.specSelectedLayerPaths,
+    specAfter: selectedLayerPaths,
+    anatomyBefore: settings.anatomySelectedLayerPaths,
+    anatomyAfter: anatomySelectedLayerPaths,
+    selectableCount: collected.options.filter((option) => option.isSelectable).length,
+  });
 
   let anatomyPreviewPayload: AnatomyPreviewPayload | null = null;
   let specPreviewPayload: AnatomyPreviewPayload | null = null;

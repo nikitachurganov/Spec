@@ -49,6 +49,7 @@ const GENERATED_DOC_NAME_PREFIXES = ['DS specification'] as const;
 
 let activeSourceNodeId: string | null = null;
 let pendingSourceNodeId: string | null = null;
+let isSourceContextLoading = false;
 let selectionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let selectionRequestId = 0;
 
@@ -139,6 +140,7 @@ function clearSelectionDebounceTimer(): void {
 function cancelPendingSourceLoad(): void {
   clearSelectionDebounceTimer();
   pendingSourceNodeId = null;
+  isSourceContextLoading = false;
   selectionRequestId += 1;
 }
 
@@ -153,50 +155,70 @@ async function postSpecLayerOptionsForSource(
   sourceNode: SceneNode,
   requestTicket: number
 ): Promise<boolean> {
-  const settings = await loadStoredSettings();
-  const result = await handleGetSpecLayerOptions(settings, sourceNode);
-  if (requestTicket !== selectionRequestId) {
-    return false;
-  }
-  if (!result.ok) {
-    postToUi({
-      type: 'SPEC_LAYER_OPTIONS_ERROR',
-      payload: { message: result.message },
+  isSourceContextLoading = true;
+  try {
+    const settings = await loadStoredSettings();
+    const result = await handleGetSpecLayerOptions(settings, sourceNode);
+    if (requestTicket !== selectionRequestId) {
+      return false;
+    }
+    if (!result.ok) {
+      postToUi({
+        type: 'SPEC_LAYER_OPTIONS_ERROR',
+        payload: { message: result.message },
+      });
+      return false;
+    }
+
+    const normalizedSelected = normalizePluginSettings({
+      ...settings,
+      specSelectedLayerPaths: result.specSelectedLayerPaths,
+      anatomySelectedLayerPaths: result.anatomySelectedLayerPaths,
     });
-    return false;
-  }
+    const specChanged = !areStringArraysEqual(
+      settings.specSelectedLayerPaths,
+      normalizedSelected.specSelectedLayerPaths
+    );
+    const anatomyChanged = !areStringArraysEqual(
+      settings.anatomySelectedLayerPaths,
+      normalizedSelected.anatomySelectedLayerPaths
+    );
+    if (specChanged || anatomyChanged) {
+      await saveStoredSettings(normalizedSelected);
+    }
 
-  const normalizedSelected = normalizePluginSettings({
-    ...settings,
-    specSelectedLayerPaths: result.specSelectedLayerPaths,
-    anatomySelectedLayerPaths: result.anatomySelectedLayerPaths,
-  });
-  const specChanged = !areStringArraysEqual(
-    settings.specSelectedLayerPaths,
-    normalizedSelected.specSelectedLayerPaths
-  );
-  const anatomyChanged = !areStringArraysEqual(
-    settings.anatomySelectedLayerPaths,
-    normalizedSelected.anatomySelectedLayerPaths
-  );
-  if (specChanged || anatomyChanged) {
-    await saveStoredSettings(normalizedSelected);
+    postToUi({
+      type: 'SPEC_LAYER_OPTIONS_LOADED',
+      payload: {
+        rootId: result.rootId,
+        rootName: result.rootName,
+        options: result.options,
+        specSelectedLayerPaths: normalizedSelected.specSelectedLayerPaths,
+        anatomySelectedLayerPaths: normalizedSelected.anatomySelectedLayerPaths,
+        autoSelectedLayerPaths: result.autoSelectedLayerPaths,
+        specPreviewPayload: result.specPreviewPayload,
+        anatomyPreviewPayload: result.anatomyPreviewPayload,
+      },
+    });
+    return true;
+  } finally {
+    isSourceContextLoading = false;
   }
+}
 
+async function reloadActiveSourceWithoutDebounce(): Promise<void> {
+  if (!activeSourceNodeId) return;
+  const node = await getNodeByIdSafe(activeSourceNodeId);
+  if (!node || !isValidDocumentationSource(node)) return;
+  const requestId = ++selectionRequestId;
   postToUi({
-    type: 'SPEC_LAYER_OPTIONS_LOADED',
+    type: 'ACTIVE_SOURCE_LOADING',
     payload: {
-      rootId: result.rootId,
-      rootName: result.rootName,
-      options: result.options,
-      specSelectedLayerPaths: normalizedSelected.specSelectedLayerPaths,
-      anatomySelectedLayerPaths: normalizedSelected.anatomySelectedLayerPaths,
-      autoSelectedLayerPaths: result.autoSelectedLayerPaths,
-      specPreviewPayload: result.specPreviewPayload,
-      anatomyPreviewPayload: result.anatomyPreviewPayload,
+      sourceNodeId: node.id,
+      sourceName: node.name,
     },
   });
-  return true;
+  await postSpecLayerOptionsForSource(node, requestId);
 }
 
 async function clearActiveSource(reason: string): Promise<void> {
@@ -217,23 +239,38 @@ async function clearActiveSource(reason: string): Promise<void> {
 }
 
 function scheduleSourceChange(candidate: SceneNode): void {
-  if (candidate.id === activeSourceNodeId) {
+  if (
+    candidate.id === activeSourceNodeId &&
+    pendingSourceNodeId === null &&
+    !isSourceContextLoading
+  ) {
     clearSelectionDebounceTimer();
-    pendingSourceNodeId = null;
     return;
   }
 
-  pendingSourceNodeId = candidate.id;
   clearSelectionDebounceTimer();
+  selectionRequestId += 1;
+  const requestId = selectionRequestId;
+
+  pendingSourceNodeId = candidate.id;
+
+  postToUi({
+    type: 'ACTIVE_SOURCE_PENDING',
+    payload: {
+      sourceNodeId: candidate.id,
+      sourceName: candidate.name,
+    },
+  });
 
   selectionDebounceTimer = setTimeout(() => {
     selectionDebounceTimer = null;
-    void acceptPendingSource(candidate.id);
+    void acceptPendingSource(candidate.id, requestId);
   }, SOURCE_SELECTION_DEBOUNCE_MS);
 }
 
-async function acceptPendingSource(sourceNodeId: string): Promise<void> {
-  const requestId = ++selectionRequestId;
+async function acceptPendingSource(sourceNodeId: string, requestId: number): Promise<void> {
+  if (requestId !== selectionRequestId) return;
+
   pendingSourceNodeId = null;
 
   const node = await getNodeByIdSafe(sourceNodeId);
@@ -253,6 +290,11 @@ async function acceptPendingSource(sourceNodeId: string): Promise<void> {
       return;
     }
     if (selectionIsOnlyGeneratedDocumentation(selection)) {
+      if (activeSourceNodeId) {
+        await reloadActiveSourceWithoutDebounce();
+      } else {
+        await postNoSourceState('generated-doc-selection');
+      }
       return;
     }
     if (!currentCandidate) {
@@ -265,7 +307,13 @@ async function acceptPendingSource(sourceNodeId: string): Promise<void> {
 
   if (requestId !== selectionRequestId) return;
 
-  postToUi({ type: 'SOURCE_CONTEXT_LOADING' });
+  postToUi({
+    type: 'ACTIVE_SOURCE_LOADING',
+    payload: {
+      sourceNodeId: node.id,
+      sourceName: node.name,
+    },
+  });
 
   const settings = await loadStoredSettings();
   const clearedForNewSource = normalizePluginSettings({
@@ -293,6 +341,15 @@ async function handleSelectionChange(): Promise<void> {
 
   if (!candidate) {
     if (selectionIsOnlyGeneratedDocumentation(selection)) {
+      if (pendingSourceNodeId !== null) {
+        cancelPendingSourceLoad();
+        if (activeSourceNodeId) {
+          await reloadActiveSourceWithoutDebounce();
+        } else {
+          await postNoSourceState('generated-doc-selection');
+        }
+        return;
+      }
       clearSelectionDebounceTimer();
       pendingSourceNodeId = null;
       return;
@@ -366,7 +423,13 @@ figma.ui.onmessage = async (raw: unknown) => {
           await postNoSourceState('manual-refresh-no-source');
           break;
         }
-        postToUi({ type: 'SOURCE_CONTEXT_LOADING' });
+        postToUi({
+          type: 'ACTIVE_SOURCE_LOADING',
+          payload: {
+            sourceNodeId: source.id,
+            sourceName: source.name,
+          },
+        });
         await postSpecLayerOptionsForSource(source, requestTicket);
         break;
       }

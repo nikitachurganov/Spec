@@ -1,5 +1,4 @@
 .stepper {
-  height: 40px;
   width: auto;
   display: inline-flex;
   align-items: center;
@@ -7,14 +6,11 @@
 }
 
 .input {
-  height: 40px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
   box-sizing: border-box;
   background: #f7f7f7;
-  border: 1px solid #eeeeee;
   border-radius: 8px;
 }
 
@@ -22,9 +18,47 @@
   opacity: 0.6;
 }
 
-.stepperButton {
+.stepperMedium {
+  height: 40px;
+}
+
+.stepperMedium .input {
+  height: 40px;
+  padding: 4px;
+}
+
+.stepperMedium .stepperButton {
   width: 28px;
   height: 28px;
+}
+
+.stepperMedium .value {
+  min-width: 48px;
+  font-size: 16px;
+  line-height: 140%;
+}
+
+.stepperSmall {
+  height: 36px;
+}
+
+.stepperSmall .input {
+  height: 36px;
+  padding: 4px;
+}
+
+.stepperSmall .stepperButton {
+  width: 28px;
+  height: 28px;
+}
+
+.stepperSmall .value {
+  min-width: 44px;
+  font-size: 14px;
+  line-height: 130%;
+}
+
+.stepperButton {
   padding: 0;
   border: 0;
   border-radius: 4px;
@@ -60,11 +94,8 @@
 }
 
 .value {
-  min-width: 48px;
   text-align: center;
   color: #4e4e4e;
   font-family: 'PT Sans', sans-serif;
-  font-size: 16px;
-  line-height: 140%;
   font-weight: 400;
 }

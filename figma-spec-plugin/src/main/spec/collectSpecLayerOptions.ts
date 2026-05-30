@@ -2,6 +2,10 @@
 
 import type { SpecLayerOption } from '../../shared/messages';
 import { buildDecompositionTree } from '../decomposition/buildDecompositionTree';
+import {
+  isDecompositionNodeSelectable,
+  logSelectableParentNodes,
+} from '../decomposition/selectableNodes';
 import type { DecompositionTree } from '../decomposition/decompositionTypes';
 import { parseContainers } from './parseContainers';
 
@@ -31,24 +35,6 @@ function isHiddenNode(node: SceneNode): boolean {
   return 'visible' in node && node.visible === false;
 }
 
-function isSelectableForSpec(node: SceneNode): boolean {
-  if (
-    node.type === 'INSTANCE' ||
-    node.type === 'COMPONENT' ||
-    node.type === 'COMPONENT_SET'
-  ) {
-    return true;
-  }
-  if (node.type === 'FRAME' || node.type === 'GROUP' || node.type === 'SECTION') {
-    return true;
-  }
-  if (node.type === 'TEXT') return false;
-  if (node.type === 'LINE' || node.type === 'VECTOR' || node.type === 'BOOLEAN_OPERATION') {
-    return false;
-  }
-  return false;
-}
-
 export async function collectSpecLayerOptions(
   root: SceneNode
 ): Promise<CollectSpecLayerOptionsResult> {
@@ -74,13 +60,15 @@ export async function collectSpecLayerOptions(
       depth: decompositionNode.depth,
       parentPath: decompositionNode.parentPath ?? undefined,
       isAutoSelected: autoSelectedSet.has(path),
-      isSelectable: isRoot ? true : isSelectableForSpec(sceneNode),
+      isSelectable: isDecompositionNodeSelectable(sceneNode, decompositionNode),
       isComponentBoundary: decompositionNode.isComponentLike,
       isRoot,
       isText: decompositionNode.isText,
       kind: decompositionNode.kind,
     });
   }
+
+  logSelectableParentNodes(options, decomposition.decompositionByPath);
 
   return {
     rootName: root.name || 'Component',

@@ -1,11 +1,14 @@
 import type { ReactNode } from 'react';
 import styles from './Stepper.module.css';
 
+export type StepperSize = 'medium' | 'small';
+
 export type StepperProps = {
   value: ReactNode;
   onMinus?: () => void;
   onPlus?: () => void;
   disabled?: boolean;
+  size?: StepperSize;
   minusAriaLabel?: string;
   plusAriaLabel?: string;
   className?: string;
@@ -20,12 +23,15 @@ export function Stepper({
   onMinus,
   onPlus,
   disabled = false,
+  size = 'medium',
   minusAriaLabel = 'Уменьшить',
   plusAriaLabel = 'Увеличить',
   className,
 }: StepperProps) {
+  const sizeClass = size === 'small' ? styles.stepperSmall : styles.stepperMedium;
+
   return (
-    <div className={joinClassNames(styles.stepper, className)}>
+    <div className={joinClassNames(styles.stepper, sizeClass, className)}>
       <div
         className={joinClassNames(styles.input, disabled && styles.inputDisabled)}
       >

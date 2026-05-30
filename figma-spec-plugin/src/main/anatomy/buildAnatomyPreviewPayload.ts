@@ -6,6 +6,7 @@ import type {
   PreviewCoordinateSpace,
 } from '../../shared/anatomyPreview';
 import type { DecompositionTree } from '../decomposition/decompositionTypes';
+import { isDecompositionNodeSelectable } from '../decomposition/selectableNodes';
 import { getNodeVisualBounds } from '../figma/visualBounds';
 import { getNodeBoundsRelativeToRoot } from '../figma/nodeBounds';
 
@@ -24,6 +25,20 @@ type Rect = {
 type PngExportSettings = ExportSettingsImage & {
   useAbsoluteBounds?: boolean;
 };
+
+/** Default PNG export scale for decomposition preview. 2× sharpens zoomed view; 3 is heavier. */
+const PREVIEW_EXPORT_SCALE = 2;
+const MAX_PREVIEW_PIXEL_AREA = 4_000_000;
+
+function resolvePreviewExportScale(coordinateSpace: PreviewCoordinateSpace): number {
+  const pixelArea =
+    coordinateSpace.width * coordinateSpace.height * PREVIEW_EXPORT_SCALE * PREVIEW_EXPORT_SCALE;
+  if (pixelArea > MAX_PREVIEW_PIXEL_AREA) {
+    // Large components: reduce scale to limit memory and export time.
+    return 1.5;
+  }
+  return PREVIEW_EXPORT_SCALE;
+}
 
 function getCoordinateSpace(rootNode: SceneNode): PreviewCoordinateSpace {
   const rootBox = rootNode.absoluteBoundingBox;
@@ -93,18 +108,7 @@ function isHotspotSelectable(
   node: SceneNode,
   decompositionNode: DecompositionTree['root']
 ): boolean {
-  if (decompositionNode.isRoot) return true;
-  if ('visible' in node && node.visible === false) return false;
-  if (decompositionNode.isText) return true;
-  if (decompositionNode.isComponentLike) return true;
-  if (decompositionNode.isStandardLayoutContainer || decompositionNode.isAutoLayout) return true;
-  return (
-    decompositionNode.kind === 'slot' ||
-    decompositionNode.kind === 'icon' ||
-    decompositionNode.kind === 'badge' ||
-    decompositionNode.kind === 'divider' ||
-    decompositionNode.kind === 'action'
-  );
+  return isDecompositionNodeSelectable(node, decompositionNode);
 }
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {
@@ -203,9 +207,10 @@ export async function buildAnatomyPreviewPayload(
   params: BuildAnatomyPreviewPayloadParams
 ): Promise<AnatomyPreviewPayload> {
   const coordinateSpace = getCoordinateSpace(params.rootNode);
+  const exportScale = resolvePreviewExportScale(coordinateSpace);
   const exportSettings: PngExportSettings = {
     format: 'PNG',
-    constraint: { type: 'SCALE', value: 1 },
+    constraint: { type: 'SCALE', value: exportScale },
     // Keep PNG crop aligned with absoluteBoundingBox coordinate space.
     useAbsoluteBounds: true,
   };
@@ -214,6 +219,7 @@ export async function buildAnatomyPreviewPayload(
 
   return {
     imageDataUrl,
+    // Logical Figma dimensions — not PNG pixel dimensions.
     imageWidth: coordinateSpace.width,
     imageHeight: coordinateSpace.height,
     coordinateSpace,

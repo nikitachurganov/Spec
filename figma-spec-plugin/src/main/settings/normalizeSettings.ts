@@ -1,4 +1,5 @@
 import { DEFAULT_PLUGIN_SETTINGS, type PluginSettings } from '../../shared/settings';
+import { normalizeLayerPathArray } from '../../shared/layerPaths';
 
 type LegacySettingsInput = Partial<PluginSettings> & {
   containers?: boolean;
@@ -6,11 +7,7 @@ type LegacySettingsInput = Partial<PluginSettings> & {
 };
 
 export function normalizeStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-
-  return value
-    .map((item) => String(item || '').trim())
-    .filter(Boolean);
+  return normalizeLayerPathArray(value);
 }
 
 export function normalizePluginSettings(input: unknown): PluginSettings {
