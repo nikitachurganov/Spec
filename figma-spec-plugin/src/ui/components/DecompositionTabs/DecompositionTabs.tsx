@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import styles from './DecompositionTabs.module.css';
 
-export type DecompositionTabId = 'header' | 'anatomy' | 'spec';
+export type DecompositionTabId = 'anatomy' | 'spec';
 
 type DecompositionTabConfig = {
   id: DecompositionTabId;
@@ -9,7 +9,6 @@ type DecompositionTabConfig = {
 };
 
 const DECOMPOSITION_TABS: DecompositionTabConfig[] = [
-  { id: 'header', label: 'Header' },
   { id: 'anatomy', label: 'Анатомия' },
   { id: 'spec', label: 'Spec' },
 ];

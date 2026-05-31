@@ -6,7 +6,10 @@ import type { UiToMainMessage } from '../shared/messages';
 import { postToUi } from './postToUi';
 import { PLUGIN_UI_SIZE, STORAGE_KEY_SETTINGS } from '../shared/constants';
 import { DEFAULT_PLUGIN_SETTINGS, type PluginSettings } from '../shared/settings';
+import { ENABLE_HEADER_BLOCK } from '../shared/featureFlags';
 import { handleGetSpecLayerOptions } from './spec/handleSpecLayerOptions';
+import { handleGetHeaderOptions } from './header/handleHeaderOptions';
+import { saveHeaderTemplateFromSelection } from './header/resolveHeaderComponent';
 
 declare const __html__: string;
 const MIN_UI_WIDTH = 360;
@@ -413,6 +416,67 @@ figma.ui.onmessage = async (raw: unknown) => {
           break;
         }
         await buildSpecification(settings, source);
+        break;
+      }
+      case 'GET_HEADER_OPTIONS': {
+        if (!ENABLE_HEADER_BLOCK) break;
+        const settings = await loadStoredSettings();
+        const result = await handleGetHeaderOptions(settings);
+        const normalized = normalizePluginSettings({
+          ...settings,
+          headerSettings: result.headerSettings,
+        });
+        const headerSettingsChanged =
+          JSON.stringify(settings.headerSettings) !== JSON.stringify(normalized.headerSettings);
+        if (headerSettingsChanged) {
+          await saveStoredSettings(normalized);
+        }
+        postToUi({
+          type: 'HEADER_OPTIONS_LOADED',
+          payload: {
+            headerFound: result.headerFound,
+            statusOptions: result.statusOptions,
+            statusSizeOptions: result.statusSizeOptions,
+            headerSettings: normalized.headerSettings,
+          },
+        });
+        break;
+      }
+      case 'SET_HEADER_TEMPLATE_FROM_SELECTION': {
+        if (!ENABLE_HEADER_BLOCK) break;
+        const result = await saveHeaderTemplateFromSelection();
+        if (!result.ok) {
+          figma.notify(result.message, { error: true });
+          postToUi({ type: 'ERROR', payload: { message: result.message } });
+          break;
+        }
+
+        figma.notify(`Компонент ${result.componentName} сохранен как Header template.`);
+
+        const settings = await loadStoredSettings();
+        const headerResult = await handleGetHeaderOptions(settings);
+        const normalized = normalizePluginSettings({
+          ...settings,
+          headerSettings: headerResult.headerSettings,
+        });
+        await saveStoredSettings(normalized);
+
+        postToUi({
+          type: 'HEADER_TEMPLATE_SAVED',
+          payload: {
+            componentId: result.componentId,
+            componentName: result.componentName,
+          },
+        });
+        postToUi({
+          type: 'HEADER_OPTIONS_LOADED',
+          payload: {
+            headerFound: headerResult.headerFound,
+            statusOptions: headerResult.statusOptions,
+            statusSizeOptions: headerResult.statusSizeOptions,
+            headerSettings: normalized.headerSettings,
+          },
+        });
         break;
       }
       case 'GET_SPEC_LAYER_OPTIONS': {

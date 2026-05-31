@@ -14,7 +14,9 @@ import { getSpecBuildStyleContext } from '../../tokens/specStyleContext';
 import { loadFontOnce } from '../../figma/text';
 import type { BuildContext } from '../buildTypes';
 import {
+  getAriaColumns,
   getKeyboardRows,
+  normalizeAriaCodeExample,
   SCREEN_READER_ITEMS,
   type KeyboardKeyAction,
 } from './accessibilityContent';
@@ -75,6 +77,13 @@ const KEY_BADGE_TEXT = {
   fontSize: 16,
   lineHeight: { unit: 'PERCENT' as const, value: 140 },
 };
+
+const ARIA_CODE_TEXT = {
+  fontSize: 16,
+  lineHeight: { unit: 'PERCENT' as const, value: 140 },
+};
+
+const MAX_ARIA_COLUMNS = 2;
 
 type FrameOptions = {
   layoutMode?: 'VERTICAL' | 'HORIZONTAL';
@@ -280,10 +289,117 @@ async function loadMonoFont(): Promise<FontName> {
     await loadFontOnce(FONT_MONO);
     return FONT_MONO;
   } catch (e) {
-    console.warn('[Accessibility] Overpass Mono unavailable, fallback PT Sans', e);
+    console.warn('[Accessibility] Overpass Mono Regular font is unavailable', e);
     await loadFontOnce(FONT_REGULAR);
     return FONT_REGULAR;
   }
+}
+
+async function createAriaColumnTitle(text: string, resolver: StyleResolver): Promise<TextNode> {
+  await loadFontOnce(FONT_REGULAR);
+  const node = createPluginText();
+  node.name = 'ARIA column title';
+  node.characters = text.length === 0 ? ' ' : text;
+  node.textAutoResize = 'HEIGHT';
+
+  await resolver.applyTextStyle(node, [...DESCRIPTION_TEXT_STYLE.names], DESCRIPTION_TEXT_STYLE.fallback);
+  await applyTextColor(node, 'textSecondary', resolver);
+
+  const ctx = getSpecBuildStyleContext();
+  if (ctx?.apply) {
+    try {
+      const baseFont =
+        node.fontName === figma.mixed ? FONT_REGULAR : (node.fontName as FontName);
+      await ctx.apply.applyParagraphFontFamilyToken(node, baseFont, resolver);
+    } catch (e) {
+      console.warn('[Accessibility] ARIA column title font family', e);
+    }
+  }
+
+  return node;
+}
+
+async function createAriaCodeExample(code: string, resolver: StyleResolver): Promise<TextNode> {
+  const monoFont = await loadMonoFont();
+  const exampleText = normalizeAriaCodeExample(code);
+  const node = await createAccessibilityText(
+    exampleText,
+    {
+      name: 'ARIA code example',
+      fontName: monoFont,
+      fontSize: ARIA_CODE_TEXT.fontSize,
+      lineHeight: ARIA_CODE_TEXT.lineHeight,
+      fontFamilyRole: 'none',
+      colorKey: 'textPrimary',
+    },
+    resolver
+  );
+  node.textAutoResize = 'HEIGHT';
+  return node;
+}
+
+async function createAriaCodeBlock(code: string, resolver: StyleResolver): Promise<FrameNode> {
+  const codeBlock = createFrame('ARIA code block', {
+    layoutMode: 'VERTICAL',
+    paddingTop: 12,
+    paddingBottom: 12,
+    paddingLeft: 16,
+    paddingRight: 16,
+    cornerRadius: 12,
+  });
+
+  await applyBackgroundPrimary(codeBlock, resolver);
+
+  const codeExample = await createAriaCodeExample(code, resolver);
+  codeBlock.appendChild(codeExample);
+  stretchInParent(codeExample);
+  safeLayoutSizing(codeExample, 'horizontal', 'FILL');
+
+  return codeBlock;
+}
+
+async function createAriaColumn(
+  title: string,
+  code: string,
+  resolver: StyleResolver
+): Promise<FrameNode> {
+  const column = createFrame('ARIA column', {
+    layoutMode: 'VERTICAL',
+    itemSpacing: 12,
+  });
+
+  const columnTitle = await createAriaColumnTitle(title, resolver);
+  const codeBlock = await createAriaCodeBlock(code, resolver);
+
+  column.appendChild(columnTitle);
+  column.appendChild(codeBlock);
+
+  stretchInParent(columnTitle);
+  safeLayoutSizing(columnTitle, 'horizontal', 'FILL');
+  stretchInParent(codeBlock);
+  safeLayoutSizing(codeBlock, 'horizontal', 'FILL');
+  safeLayoutSizing(codeBlock, 'vertical', 'HUG');
+
+  return column;
+}
+
+async function createAriaColumns(resolver: StyleResolver): Promise<FrameNode> {
+  const columns = createFrame('ARIA columns', {
+    layoutMode: 'HORIZONTAL',
+    itemSpacing: 20,
+    primaryAxisAlignItems: 'MIN',
+    counterAxisAlignItems: 'MIN',
+  });
+
+  const ariaColumns = getAriaColumns().slice(0, MAX_ARIA_COLUMNS);
+  for (const columnData of ariaColumns) {
+    const column = await createAriaColumn(columnData.title, columnData.code, resolver);
+    columns.appendChild(column);
+    tryLayoutGrow(column, 1);
+    applyRowFillWidth(column);
+  }
+
+  return columns;
 }
 
 async function createAccessibilityText(
@@ -767,9 +883,9 @@ async function buildKeyboardNavigationBlock(context: BuildContext): Promise<Fram
 
 async function buildAriaBlock(resolver: StyleResolver): Promise<FrameNode> {
   const { block } = await createInnerBlock('ARIA block', 'ARIA', 'ARIA title', resolver);
-  const description = await createBodyText('Описание', 'ARIA description', resolver, 'textPrimary');
-  block.appendChild(description);
-  stretchInParent(description);
+  const columns = await createAriaColumns(resolver);
+  block.appendChild(columns);
+  applyRowFillWidth(columns);
   return block;
 }
 
@@ -841,6 +957,9 @@ async function buildScreenReadersBlock(resolver: StyleResolver): Promise<FrameNo
   for (const line of SCREEN_READER_ITEMS) {
     const item = await createScreenReaderListItem(line, resolver);
     list.appendChild(item);
+    stretchInParent(item);
+    safeLayoutSizing(item, 'horizontal', 'FILL');
+    safeLayoutSizing(item, 'vertical', 'HUG');
   }
 
   block.appendChild(list);

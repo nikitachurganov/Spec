@@ -1,4 +1,5 @@
 import type { PluginSettings } from '@shared/settings';
+import { ENABLE_HEADER_BLOCK } from '@shared/featureFlags';
 import { ACTIVE_FIRST_TOGGLE_ITEMS, type ToggleSettingKey } from './toggleItems';
 import { ToggleRow } from './ToggleRow';
 
@@ -11,10 +12,14 @@ export function SettingsPanel({
   settings,
   onChange,
 }: Props) {
+  const toggleItems = ACTIVE_FIRST_TOGGLE_ITEMS.filter(
+    (item) => ENABLE_HEADER_BLOCK || item.key !== 'header'
+  );
+
   return (
     <section className="settings-section">
       <div className="toggle-list">
-        {ACTIVE_FIRST_TOGGLE_ITEMS.map((item) => {
+        {toggleItems.map((item) => {
           const key = item.key as ToggleSettingKey;
           const checked = Boolean(settings[key]);
 

@@ -1,0 +1,57 @@
+.headerSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  color: #333333;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 14px;
+  line-height: 130%;
+}
+
+.input,
+.select,
+.textarea {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid #eae8e8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #333333;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 14px;
+  line-height: 130%;
+  padding: 8px 12px;
+}
+
+.textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: 2px solid rgba(0, 125, 227, 0.25);
+  border-color: #007de3;
+}
+
+.hint {
+  margin: 0;
+  color: #8c8c8c;
+  font-family: 'PT Sans', sans-serif;
+  font-size: 12px;
+  line-height: 130%;
+}

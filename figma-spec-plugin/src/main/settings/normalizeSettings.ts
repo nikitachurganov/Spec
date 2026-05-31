@@ -1,4 +1,5 @@
-import { DEFAULT_PLUGIN_SETTINGS, type PluginSettings } from '../../shared/settings';
+import { DEFAULT_PLUGIN_SETTINGS, applyDocumentationFeatureFlags, type PluginSettings } from '../../shared/settings';
+import { normalizeHeaderSettings } from '../../shared/headerSettings';
 import { normalizeLayerPathArray } from '../../shared/layerPaths';
 
 type LegacySettingsInput = Partial<PluginSettings> & {
@@ -31,8 +32,9 @@ export function normalizePluginSettings(input: unknown): PluginSettings {
         ? o.anatomy
         : DEFAULT_PLUGIN_SETTINGS.componentAnatomy;
 
-  return {
+  return applyDocumentationFeatureFlags({
     header: typeof o.header === 'boolean' ? o.header : DEFAULT_PLUGIN_SETTINGS.header,
+    headerSettings: normalizeHeaderSettings(o.headerSettings),
     componentAnatomy,
     spec,
     specSelectedLayerPaths: normalizeStringArray(o.specSelectedLayerPaths),
@@ -60,5 +62,5 @@ export function normalizePluginSettings(input: unknown): PluginSettings {
       typeof o.useLibraryTokens === 'boolean'
         ? o.useLibraryTokens
         : DEFAULT_PLUGIN_SETTINGS.useLibraryTokens,
-  };
+  });
 }

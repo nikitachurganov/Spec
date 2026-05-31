@@ -98,7 +98,7 @@ export function App() {
     useState<AnatomyPreviewPayload | null>(null);
   const [anatomyPreviewPayload, setAnatomyPreviewPayload] =
     useState<AnatomyPreviewPayload | null>(null);
-  const [activeDecompositionTab, setActiveDecompositionTab] = useState<DecompositionTab>('header');
+  const [activeDecompositionTab, setActiveDecompositionTab] = useState<DecompositionTab>('anatomy');
   const [uiSize, setUiSize] = useState(() => ({
     width: window.innerWidth,
     height: window.innerHeight,
@@ -370,7 +370,6 @@ export function App() {
     () => filterDecompositionOptionsForPurpose(specLayerOptions, 'anatomy'),
     [specLayerOptions]
   );
-  const isHeaderEnabled = Boolean(settings.header);
   const isSpecEnabled = Boolean(settings.spec);
   const isAnatomyEnabled = Boolean(settings.componentAnatomy);
   const hasSource = Boolean(specLayerRootId);
@@ -379,10 +378,6 @@ export function App() {
     !hasAnySpecificationBlock(settings) ||
     busy ||
     specLayerOptionsLoading;
-
-  const enableHeaderBlock = useCallback(() => {
-    handleSettingsChange({ ...settings, header: true });
-  }, [handleSettingsChange, settings]);
 
   const enableAnatomyBlock = useCallback(() => {
     handleSettingsChange({ ...settings, componentAnatomy: true });
@@ -453,24 +448,6 @@ export function App() {
                 onTabChange={setActiveDecompositionTab}
               />
               <div className="decomposition-content">
-                {activeDecompositionTab === 'header' ? (
-                  !isHeaderEnabled ? (
-                    <EmptyTabState
-                      description="Включите блок Header, чтобы указать основную информацию о компоненте."
-                      actionLabel="Включить Header"
-                      onAction={enableHeaderBlock}
-                    />
-                  ) : !hasSource ? (
-                    <EmptyTabState
-                      description="После выбора вы сможете указать основную информацию о компоненте."
-                    />
-                  ) : (
-                    <EmptyTabState
-                      title="Блок Header включен"
-                      description="Основная информация о компоненте будет добавлена в документацию."
-                    />
-                  )
-                ) : null}
                 {activeDecompositionTab === 'anatomy' ? (
                   !isAnatomyEnabled ? (
                     <EmptyTabState

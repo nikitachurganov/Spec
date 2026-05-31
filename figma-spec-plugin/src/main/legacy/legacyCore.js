@@ -4,6 +4,8 @@ import { buildAccessibilitySection } from '../builders/accessibility/buildAccess
 import { buildThemesSection } from '../builders/buildThemesSection';
 import { ensureDocumentReadyForTraversal, getNodeByIdSafeAsync } from '../figma/documentAccess';
 import { assembleSpecificationWrapper, findDsTemplateHeader } from '../builders/specificationWrapper';
+import { normalizeHeaderSettings } from '../../shared/headerSettings';
+import { ENABLE_HEADER_BLOCK } from '../../shared/featureFlags';
 import { createSpecIcon } from '../icons/iconFactory';
 import { getPropertyIconNames } from '../icons/propertyIconResolver';
 import { getContainerPropertyRows } from '../spec/containerCardPropertyRows';
@@ -303,7 +305,7 @@ function descriptionCardValueColumnWidth(designTokens) {
 }
 
 var DEFAULT_SECTION_SETTINGS = {
-  header: true,
+  header: false,
   spec: true,
   componentAnatomy: true,
   accessibility: true,
@@ -371,6 +373,7 @@ function normalizeSectionSettings(settings) {
       settings && Array.isArray(settings.anatomySelectedLayerPaths)
         ? settings.anatomySelectedLayerPaths
         : [],
+    headerSettings: normalizeHeaderSettings(settings && settings.headerSettings),
   };
 }
 
@@ -4148,13 +4151,18 @@ async function buildSpecification(sections, root) {
     stretchInParent(placeholder);
   }
 
-  var includeHeader = sections.header !== false;
+  // Header generation is disabled until the documentation template library is published.
+  var includeHeader = ENABLE_HEADER_BLOCK && sections.header !== false;
   var dsHeaderComponent = includeHeader ? await findDsTemplateHeader() : null;
   var specificationRoot = await assembleSpecificationWrapper(
     root.name,
     specificationFrame,
     dsHeaderComponent,
-    { includeHeader: includeHeader }
+    {
+      includeHeader: includeHeader,
+      headerSettings: sections.headerSettings,
+      defaultComponentName: root.name,
+    }
   );
 
   return specificationRoot;

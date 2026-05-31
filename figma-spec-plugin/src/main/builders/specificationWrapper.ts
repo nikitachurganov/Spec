@@ -1,9 +1,15 @@
 /// <reference types="@figma/plugin-typings" />
-import { createPluginFrame, createPluginText } from '../figma/pluginSceneNodes';
 
-import { ensureDocumentReadyForTraversal } from '../figma/documentAccess';
+import { createPluginFrame, createPluginText } from '../figma/pluginSceneNodes';
+import type { HeaderSettings } from '../../shared/headerSettings';
+import { applyHeaderSettingsToInstance } from '../header/applyHeaderSettings';
+import {
+  HEADER_TEMPLATE_ERROR_MESSAGE,
+  notifyHeaderComponentMissing,
+  resolveLocalHeaderComponent,
+} from '../header/resolveHeaderComponent';
+
 import { applyParagraphFontFamilyToken } from '../tokens/applyTokens';
-import { normalizeTokenName } from '../tokens/styleResolver';
 import { getSpecBuildStyleContext } from '../tokens/specStyleContext';
 import { hexToRgb } from '../tokens/tokenMap';
 
@@ -13,50 +19,10 @@ const SPECIFICATION_OUTER_WIDTH = 1440;
 const HEADER_FALLBACK_FONT: FontName = { family: 'Inter', style: 'Regular' };
 
 /**
- * Компонент шапки: полное имя варианта либо набор `.DS-Template-header` + вариант `Default`.
+ * Компонент шапки: локальный компонент или сохранённый Header template.
  */
 export async function findDsTemplateHeader(): Promise<ComponentNode | null> {
-  await ensureDocumentReadyForTraversal();
-
-  const fullMatch = normalizeTokenName('.DS-Template-header/Default');
-  const setMatch = normalizeTokenName('.DS-Template-header');
-
-  for (const child of figma.root.children) {
-    if (child.type !== 'PAGE') continue;
-
-    const page = child;
-    if (typeof page.loadAsync === 'function') {
-      try {
-        await page.loadAsync();
-      } catch (error) {
-        console.warn('[SpecWrapper] Failed to load page for header search', page.name, error);
-        continue;
-      }
-    }
-
-    const hits = page.findAll(
-      (n): n is ComponentNode | ComponentSetNode =>
-        n.type === 'COMPONENT' || n.type === 'COMPONENT_SET'
-    );
-
-    for (const n of hits) {
-      if (n.type === 'COMPONENT' && normalizeTokenName(n.name) === fullMatch) {
-        return n;
-      }
-      if (n.type === 'COMPONENT_SET' && normalizeTokenName(n.name) === setMatch) {
-        const def =
-          (n.defaultVariant as ComponentNode | undefined) ??
-          (n.children.find(
-            (ch) =>
-              ch.type === 'COMPONENT' &&
-              normalizeTokenName(ch.name) === 'default'
-          ) as ComponentNode | undefined);
-        if (def?.type === 'COMPONENT') return def;
-      }
-    }
-  }
-
-  return null;
+  return resolveLocalHeaderComponent();
 }
 
 function tryStretchInAutoLayout(node: SceneNode): void {
@@ -73,7 +39,7 @@ async function appendHeaderComponentNotFoundFallback(wrapper: FrameNode): Promis
     await figma.loadFontAsync(HEADER_FALLBACK_FONT);
     const fallback = createPluginText();
     fallback.name = 'Header fallback';
-    fallback.characters = 'Header component not found: .DS-Template-header/Default';
+    fallback.characters = HEADER_TEMPLATE_ERROR_MESSAGE;
     fallback.fontName = HEADER_FALLBACK_FONT;
     fallback.fontSize = 14;
     fallback.lineHeight = { unit: 'PERCENT', value: 130 };
@@ -95,6 +61,9 @@ async function appendHeaderComponentNotFoundFallback(wrapper: FrameNode): Promis
 export type SpecificationWrapperOptions = {
   /** When false, neither header instance nor fallback text is added. */
   includeHeader?: boolean;
+  headerSettings?: HeaderSettings;
+  /** Used when headerSettings.name is empty. */
+  defaultComponentName?: string;
 };
 
 export async function createSpecificationWrapper(
@@ -131,6 +100,9 @@ export async function createSpecificationWrapper(
 
   if (includeHeader) {
     if (headerInstance) {
+      await applyHeaderSettingsToInstance(headerInstance, options?.headerSettings, {
+        defaultComponentName: options?.defaultComponentName,
+      });
       headerInstance.name = '.DS-Template-header/Default';
 
       try {
@@ -141,6 +113,7 @@ export async function createSpecificationWrapper(
 
       wrapper.appendChild(headerInstance);
     } else {
+      notifyHeaderComponentMissing();
       await appendHeaderComponentNotFoundFallback(wrapper);
     }
   }
@@ -178,5 +151,8 @@ export async function assembleSpecificationWrapper(
     }
   }
 
-  return createSpecificationWrapper(rootName, headerInstance, specificationFrame, options);
+  return createSpecificationWrapper(rootName, headerInstance, specificationFrame, {
+    ...options,
+    defaultComponentName: options?.defaultComponentName ?? rootName,
+  });
 }

@@ -1,5 +1,6 @@
 import type { PluginSettings } from './settings';
 import type { AnatomyPreviewPayload } from './anatomyPreview';
+import type { HeaderSettings } from './headerSettings';
 
 export type SpecLayerOption = {
   path: string;
@@ -59,11 +60,21 @@ export type ResizePluginMessage = {
   };
 };
 
+export type GetHeaderOptionsMessage = {
+  type: 'GET_HEADER_OPTIONS';
+};
+
+export type SetHeaderTemplateFromSelectionMessage = {
+  type: 'SET_HEADER_TEMPLATE_FROM_SELECTION';
+};
+
 export type UiToMainMessage =
   | BuildSpecificationMessage
   | GetSettingsMessage
   | SaveSettingsMessage
   | GetSpecLayerOptionsMessage
+  | GetHeaderOptionsMessage
+  | SetHeaderTemplateFromSelectionMessage
   | SaveSpecSelectedLayersMessage
   | SaveAnatomySelectedLayersMessage
   | ResizePluginMessage;
@@ -137,12 +148,32 @@ export type ReadyMessage = {
   type: 'READY';
 };
 
+export type HeaderOptionsLoadedMessage = {
+  type: 'HEADER_OPTIONS_LOADED';
+  payload: {
+    headerFound: boolean;
+    statusOptions: string[];
+    statusSizeOptions: string[];
+    headerSettings: HeaderSettings;
+  };
+};
+
+export type HeaderTemplateSavedMessage = {
+  type: 'HEADER_TEMPLATE_SAVED';
+  payload: {
+    componentId: string;
+    componentName: string;
+  };
+};
+
 export type MainToUiMessage =
   | SpecificationBuiltMessage
   | ErrorMessage
   | SettingsLoadedMessage
   | SpecLayerOptionsLoadedMessage
   | SpecLayerOptionsErrorMessage
+  | HeaderOptionsLoadedMessage
+  | HeaderTemplateSavedMessage
   | ActiveSourceClearedMessage
   | ActiveSourcePendingMessage
   | ActiveSourceLoadingMessage

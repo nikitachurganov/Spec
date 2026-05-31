@@ -51,3 +51,35 @@ export const SCREEN_READER_ITEMS: readonly string[] = [
   'Интерактивные элементы должны иметь доступное имя.',
   'Ошибки и системные сообщения должны передаваться через aria-live, если они появляются динамически.',
 ];
+
+export type AriaCodeColumn = {
+  title: string;
+  code: string;
+};
+
+const DEFAULT_ARIA_COLUMNS: ReadonlyArray<AriaCodeColumn> = [
+  {
+    title: 'Container',
+    code: '',
+  },
+  {
+    title: 'Trigger',
+    code: '',
+  },
+];
+
+/** Generic ARIA markup examples for the documentation ARIA block. */
+export function normalizeAriaCodeExample(code?: string): string {
+  const normalized = code?.trim();
+  if (!normalized) {
+    return 'aria-label=""';
+  }
+  return code!;
+}
+
+export function getAriaColumns(): AriaCodeColumn[] {
+  return DEFAULT_ARIA_COLUMNS.map((column) => ({
+    title: column.title,
+    code: normalizeAriaCodeExample(column.code),
+  }));
+}
