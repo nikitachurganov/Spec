@@ -133,23 +133,6 @@ function parseSlotFromName(name: string): string | undefined {
   return undefined;
 }
 
-async function getMainComponentName(
-  node: SceneNode,
-  cache: Map<string, string | undefined>
-): Promise<string | undefined> {
-  if (node.type !== 'INSTANCE') return undefined;
-  if (cache.has(node.id)) return cache.get(node.id);
-  try {
-    const main = await node.getMainComponentAsync();
-    const name = main?.name ? String(main.name) : undefined;
-    cache.set(node.id, name);
-    return name;
-  } catch {
-    cache.set(node.id, undefined);
-    return undefined;
-  }
-}
-
 function toVariantProperties(node: SceneNode): Record<string, string> | undefined {
   if (node.type !== 'INSTANCE' || !node.variantProperties) return undefined;
   const out: Record<string, string> = {};
@@ -172,21 +155,20 @@ function toComponentProperties(node: SceneNode): Record<string, unknown> | undef
 export async function buildDecompositionTree(root: SceneNode): Promise<DecompositionTree> {
   const nodeByPath = new Map<string, SceneNode>();
   const decompositionByPath = new Map<string, DecompositionNode>();
-  const mainComponentNameCache = new Map<string, string | undefined>();
 
-  async function walk(
+  function walk(
     node: SceneNode,
     path: string,
     parentPath: string | null,
     depth: number
-  ): Promise<DecompositionNode | null> {
+  ): DecompositionNode | null {
     if (node !== root) {
       if (!isVisibleNode(node)) return null;
       if (isServiceNode(node)) return null;
     }
+    if (node.removed) return null;
 
     const isRoot = path === '';
-    const mainComponentName = await getMainComponentName(node, mainComponentNameCache);
     const item: DecompositionNode = {
       path,
       key: node.id,
@@ -207,7 +189,7 @@ export async function buildDecompositionTree(root: SceneNode): Promise<Decomposi
       metadata: {
         componentName:
           node.type === 'COMPONENT' || node.type === 'COMPONENT_SET' ? String(node.name || '') : undefined,
-        mainComponentName,
+        mainComponentName: undefined,
         variantProperties: toVariantProperties(node),
         componentProperties: toComponentProperties(node),
         state: parseStateFromName(node.name || ''),
@@ -225,7 +207,7 @@ export async function buildDecompositionTree(root: SceneNode): Promise<Decomposi
       for (let i = 0; i < node.children.length; i++) {
         const child = node.children[i] as SceneNode;
         const childPath = path ? `${path}/${i}` : String(i);
-        const childNode = await walk(child, childPath, path, depth + 1);
+        const childNode = walk(child, childPath, path, depth + 1);
         if (childNode) children.push(childNode);
       }
       item.children = children;
@@ -235,7 +217,7 @@ export async function buildDecompositionTree(root: SceneNode): Promise<Decomposi
     return item;
   }
 
-  const decompositionRoot = await walk(root, '', null, 0);
+  const decompositionRoot = walk(root, '', null, 0);
   if (!decompositionRoot) {
     throw new Error('[Decomposition] Failed to build root decomposition node.');
   }

@@ -39,8 +39,8 @@ async function appendHeaderComponentNotFoundFallback(wrapper: FrameNode): Promis
     await figma.loadFontAsync(HEADER_FALLBACK_FONT);
     const fallback = createPluginText();
     fallback.name = 'Header fallback';
-    fallback.characters = HEADER_TEMPLATE_ERROR_MESSAGE;
     fallback.fontName = HEADER_FALLBACK_FONT;
+    fallback.characters = HEADER_TEMPLATE_ERROR_MESSAGE;
     fallback.fontSize = 14;
     fallback.lineHeight = { unit: 'PERCENT', value: 130 };
     fallback.fills = [{ type: 'SOLID', color: hexToRgb('#8C8C8C') }];

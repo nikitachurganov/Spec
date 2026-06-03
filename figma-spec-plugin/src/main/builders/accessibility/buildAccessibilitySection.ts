@@ -299,6 +299,7 @@ async function createAriaColumnTitle(text: string, resolver: StyleResolver): Pro
   await loadFontOnce(FONT_REGULAR);
   const node = createPluginText();
   node.name = 'ARIA column title';
+  node.fontName = FONT_REGULAR;
   node.characters = text.length === 0 ? ' ' : text;
   node.textAutoResize = 'HEIGHT';
 
@@ -308,9 +309,7 @@ async function createAriaColumnTitle(text: string, resolver: StyleResolver): Pro
   const ctx = getSpecBuildStyleContext();
   if (ctx?.apply) {
     try {
-      const baseFont =
-        node.fontName === figma.mixed ? FONT_REGULAR : (node.fontName as FontName);
-      await ctx.apply.applyParagraphFontFamilyToken(node, baseFont, resolver);
+      await ctx.apply.applyParagraphFontFamilyToken(node, FONT_REGULAR, resolver);
     } catch (e) {
       console.warn('[Accessibility] ARIA column title font family', e);
     }
@@ -517,6 +516,7 @@ async function createDescriptionText(text: string, resolver: StyleResolver): Pro
   await loadFontOnce(FONT_REGULAR);
   const node = createPluginText();
   node.name = 'Accessibility description';
+  node.fontName = FONT_REGULAR;
   node.characters = text.length === 0 ? ' ' : text;
   node.textAutoResize = 'WIDTH_AND_HEIGHT';
 
@@ -526,9 +526,7 @@ async function createDescriptionText(text: string, resolver: StyleResolver): Pro
   const ctx = getSpecBuildStyleContext();
   if (ctx?.apply) {
     try {
-      const baseFont =
-        node.fontName === figma.mixed ? FONT_REGULAR : (node.fontName as FontName);
-      await ctx.apply.applyParagraphFontFamilyToken(node, baseFont, resolver);
+      await ctx.apply.applyParagraphFontFamilyToken(node, FONT_REGULAR, resolver);
     } catch (e) {
       console.warn('[Accessibility] description font family', e);
     }

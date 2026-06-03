@@ -1,7 +1,6 @@
 'use strict';
 
-import { buildAccessibilitySection } from '../builders/accessibility/buildAccessibilitySection';
-import { buildThemesSection } from '../builders/buildThemesSection';
+import { appendDocumentationBlocksInOrder } from '../builders/appendDocumentationBlocks';
 import { ensureDocumentReadyForTraversal, getNodeByIdSafeAsync } from '../figma/documentAccess';
 import { assembleSpecificationWrapper, findDsTemplateHeader } from '../builders/specificationWrapper';
 import { normalizeHeaderSettings } from '../../shared/headerSettings';
@@ -309,6 +308,9 @@ var DEFAULT_SECTION_SETTINGS = {
   spec: true,
   componentAnatomy: true,
   accessibility: true,
+  componentsProperties: false,
+  behavior: false,
+  usageScenarios: false,
   childOverlays: true,
   gapOverlays: true,
   useComponentPropertyNames: true,
@@ -365,6 +367,22 @@ function normalizeSectionSettings(settings) {
       settings && typeof settings.themes === 'boolean'
         ? settings.themes
         : false,
+    componentsProperties:
+      settings && typeof settings.componentsProperties === 'boolean'
+        ? settings.componentsProperties
+        : settings && typeof settings.variants === 'boolean'
+          ? settings.variants
+          : settings && typeof settings.componentVariants === 'boolean'
+            ? settings.componentVariants
+            : DEFAULT_SECTION_SETTINGS.componentsProperties,
+    behavior:
+      settings && typeof settings.behavior === 'boolean'
+        ? settings.behavior
+        : DEFAULT_SECTION_SETTINGS.behavior,
+    usageScenarios:
+      settings && typeof settings.usageScenarios === 'boolean'
+        ? settings.usageScenarios
+        : DEFAULT_SECTION_SETTINGS.usageScenarios,
     specSelectedLayerPaths:
       settings && Array.isArray(settings.specSelectedLayerPaths)
         ? settings.specSelectedLayerPaths
@@ -4063,78 +4081,48 @@ async function buildSpecification(sections, root) {
 
   await tryApplySpecificationFrameTokens(specificationFrame);
 
-  if (sections.accessibility) {
-    var styleCtx = getSpecBuildStyleContext();
-    if (styleCtx && styleCtx.resolver) {
-      var accessibilitySection = await buildAccessibilitySection({
-        root: root,
-        settings: sections,
-        resolver: styleCtx.resolver,
-        spacingTokenResolver: styleCtx.spacingTokenResolver,
-      });
-      specificationFrame.appendChild(accessibilitySection);
-      stretchInParent(accessibilitySection);
-    } else {
-      console.warn('[Spec] Accessibility section skipped: no style context');
-    }
-  }
+  await appendDocumentationBlocksInOrder({
+    specificationFrame: specificationFrame,
+    sections: sections,
+    root: root,
+    deps: {
+      stretchInParent: stretchInParent,
+      buildAnatomyBlock: async function () {
+        if (!(sections.componentAnatomy || sections.anatomy)) return null;
 
-  if (sections.componentAnatomy || sections.anatomy) {
-    var propertyMetadata = await AnatomyGenerator.getComponentPropertyMetadata(
-      root
-    );
+        var propertyMetadata = await AnatomyGenerator.getComponentPropertyMetadata(root);
 
-    var anatomyOptions = await AnatomyGenerator.loadFonts({
-      fontRegular: activeFontRegular,
-      fontBold: activeFontBold,
-    });
-
-    anatomyOptions.componentPropertyMetadata = propertyMetadata;
-    anatomyOptions.useComponentPropertyNames = !!sections.useComponentPropertyNames;
-    anatomyOptions.selectedLayerPaths = filteredAnatomySelectedPaths;
-
-    var anatomyFrame = await AnatomyGenerator.createAnatomyFrame({
-      sourceNode: root,
-      title: 'Anatomy',
-      options: anatomyOptions,
-    });
-
-    var anatomySection = await createAnatomySection(anatomyFrame);
-    specificationFrame.appendChild(anatomySection);
-    stretchInParent(anatomySection);
-  }
-
-  if (sections.spec || sections.containers) {
-    var containersSection = await createContainersSection(
-      spec,
-      root,
-      designTokens,
-      sections
-    );
-
-    var specSection = await createSpecSection(containersSection);
-    specificationFrame.appendChild(specSection);
-    stretchInParent(specSection);
-  }
-
-  if (sections.themes) {
-    try {
-      var themesStyleCtx = getSpecBuildStyleContext();
-      if (themesStyleCtx && themesStyleCtx.resolver) {
-        var themesSection = await buildThemesSection({
-          rootNode: root,
-          settings: sections,
-          resolver: themesStyleCtx.resolver,
+        var anatomyOptions = await AnatomyGenerator.loadFonts({
+          fontRegular: activeFontRegular,
+          fontBold: activeFontBold,
         });
-        specificationFrame.appendChild(themesSection);
-        stretchInParent(themesSection);
-      } else {
-        console.warn('[Themes] Section skipped: no style context');
-      }
-    } catch (themesErr) {
-      console.warn('[Themes] Section generation failed:', themesErr);
-    }
-  }
+
+        anatomyOptions.componentPropertyMetadata = propertyMetadata;
+        anatomyOptions.useComponentPropertyNames = !!sections.useComponentPropertyNames;
+        anatomyOptions.selectedLayerPaths = filteredAnatomySelectedPaths;
+
+        var anatomyFrame = await AnatomyGenerator.createAnatomyFrame({
+          sourceNode: root,
+          title: 'Anatomy',
+          options: anatomyOptions,
+        });
+
+        return await createAnatomySection(anatomyFrame);
+      },
+      buildSpecBlock: async function () {
+        if (!(sections.spec || sections.containers)) return null;
+
+        var containersSection = await createContainersSection(
+          spec,
+          root,
+          designTokens,
+          sections
+        );
+
+        return await createSpecSection(containersSection);
+      },
+    },
+  });
 
   if (specificationFrame.children.length === 0) {
     var placeholder = await createTextNode(

@@ -6,7 +6,7 @@ export type ToggleSettingKey =
       | 'header'
       | 'componentAnatomy'
       | 'spec'
-      | 'variants'
+      | 'componentsProperties'
       | 'behavior'
       | 'usageScenarios'
       | 'accessibility'
@@ -20,17 +20,16 @@ export type ToggleItemConfig = {
 };
 
 /**
- * When all sections become interactive, use canonical order:
- * Header, Variants, Behavior, Usage scenarios, Accessibility, Anatomy, Spacing, Themes.
- * For now active items are placed first: Header, Anatomy, Spacing.
+ * Toggle list order (UI only). Generated documentation order is fixed in
+ * `DOCUMENTATION_BLOCK_ORDER` (shared/documentationBlockOrder.ts).
  */
 export const ACTIVE_FIRST_TOGGLE_ITEMS: ToggleItemConfig[] = [
   { key: 'header', label: 'Шапка', enabled: true },
-  { key: 'accessibility', label: 'Доступность', enabled: true },
-  { key: 'componentAnatomy', label: 'Анатомия', enabled: true },
-  { key: 'spec', label: 'Отступы', enabled: true },
-  { key: 'variants', label: 'Варианты компонента', enabled: false },
-  { key: 'behavior', label: 'Поведение', enabled: false },
-  { key: 'usageScenarios', label: 'Сценарии использования', enabled: false },
-  { key: 'themes', label: 'Темы', enabled: true },
+  { key: 'componentsProperties', label: 'Components & properties', enabled: true },
+  { key: 'componentAnatomy', label: 'Anatomy', enabled: true },
+  { key: 'behavior', label: 'Behavior', enabled: false },
+  { key: 'usageScenarios', label: 'Use case', enabled: false },
+  { key: 'spec', label: 'Spec', enabled: true },
+  { key: 'accessibility', label: 'Accessibility', enabled: true },
+  { key: 'themes', label: 'Themes', enabled: true },
 ];

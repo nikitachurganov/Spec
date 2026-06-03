@@ -15,7 +15,8 @@ export type PluginSettings = {
   specSelectedLayerPaths: string[];
   anatomySelectedLayerPaths: string[];
 
-  variants: boolean;
+  /** Components & properties (variants matrix). */
+  componentsProperties: boolean;
   behavior: boolean;
   usageScenarios: boolean;
   accessibility: boolean;
@@ -37,7 +38,7 @@ export const DEFAULT_PLUGIN_SETTINGS: PluginSettings = {
   specSelectedLayerPaths: [],
   anatomySelectedLayerPaths: [],
 
-  variants: false,
+  componentsProperties: false,
   behavior: false,
   usageScenarios: false,
   accessibility: true,
@@ -62,6 +63,9 @@ export function applyDocumentationFeatureFlags(settings: PluginSettings): Plugin
 export function hasAnySpecificationBlock(settings: PluginSettings): boolean {
   return (
     (ENABLE_HEADER_BLOCK && settings.header) ||
+    settings.componentsProperties ||
+    settings.behavior ||
+    settings.usageScenarios ||
     settings.componentAnatomy ||
     settings.spec ||
     settings.accessibility ||

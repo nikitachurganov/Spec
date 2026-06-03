@@ -5,7 +5,18 @@ import { normalizeLayerPathArray } from '../../shared/layerPaths';
 type LegacySettingsInput = Partial<PluginSettings> & {
   containers?: boolean;
   anatomy?: boolean;
+  /** @deprecated Use componentsProperties */
+  variants?: boolean;
+  /** @deprecated Use componentsProperties */
+  componentVariants?: boolean;
 };
+
+function resolveComponentsProperties(input: LegacySettingsInput): boolean {
+  if (typeof input.componentsProperties === 'boolean') return input.componentsProperties;
+  if (typeof input.variants === 'boolean') return input.variants;
+  if (typeof input.componentVariants === 'boolean') return input.componentVariants;
+  return DEFAULT_PLUGIN_SETTINGS.componentsProperties;
+}
 
 export function normalizeStringArray(value: unknown): string[] {
   return normalizeLayerPathArray(value);
@@ -39,7 +50,7 @@ export function normalizePluginSettings(input: unknown): PluginSettings {
     spec,
     specSelectedLayerPaths: normalizeStringArray(o.specSelectedLayerPaths),
     anatomySelectedLayerPaths: normalizeStringArray(o.anatomySelectedLayerPaths),
-    variants: typeof o.variants === 'boolean' ? o.variants : DEFAULT_PLUGIN_SETTINGS.variants,
+    componentsProperties: resolveComponentsProperties(o),
     behavior: typeof o.behavior === 'boolean' ? o.behavior : DEFAULT_PLUGIN_SETTINGS.behavior,
     usageScenarios:
       typeof o.usageScenarios === 'boolean'

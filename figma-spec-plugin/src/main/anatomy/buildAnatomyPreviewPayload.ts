@@ -27,17 +27,21 @@ type PngExportSettings = ExportSettingsImage & {
 };
 
 /** Default PNG export scale for decomposition preview. 2× sharpens zoomed view; 3 is heavier. */
-const PREVIEW_EXPORT_SCALE = 2;
+const DEFAULT_PREVIEW_EXPORT_SCALE = 2;
 const MAX_PREVIEW_PIXEL_AREA = 4_000_000;
+const DEBUG_LAYER_LOAD_PERFORMANCE = false;
 
 function resolvePreviewExportScale(coordinateSpace: PreviewCoordinateSpace): number {
   const pixelArea =
-    coordinateSpace.width * coordinateSpace.height * PREVIEW_EXPORT_SCALE * PREVIEW_EXPORT_SCALE;
+    coordinateSpace.width *
+    coordinateSpace.height *
+    DEFAULT_PREVIEW_EXPORT_SCALE *
+    DEFAULT_PREVIEW_EXPORT_SCALE;
   if (pixelArea > MAX_PREVIEW_PIXEL_AREA) {
     // Large components: reduce scale to limit memory and export time.
-    return 1.5;
+    return 1;
   }
-  return PREVIEW_EXPORT_SCALE;
+  return DEFAULT_PREVIEW_EXPORT_SCALE;
 }
 
 function getCoordinateSpace(rootNode: SceneNode): PreviewCoordinateSpace {
@@ -214,8 +218,17 @@ export async function buildAnatomyPreviewPayload(
     // Keep PNG crop aligned with absoluteBoundingBox coordinate space.
     useAbsoluteBounds: true,
   };
+  if (DEBUG_LAYER_LOAD_PERFORMANCE) console.time('[layers] preview export');
   const exportBytes = await params.rootNode.exportAsync(exportSettings);
+  if (DEBUG_LAYER_LOAD_PERFORMANCE) console.timeEnd('[layers] preview export');
   const imageDataUrl = createPngDataUrl(exportBytes);
+  if (DEBUG_LAYER_LOAD_PERFORMANCE) console.time('[layers] hotspot build');
+  const hotspots = createHotspots({
+    rootNode: params.rootNode,
+    coordinateSpace,
+    decomposition: params.decomposition,
+  });
+  if (DEBUG_LAYER_LOAD_PERFORMANCE) console.timeEnd('[layers] hotspot build');
 
   return {
     imageDataUrl,
@@ -223,10 +236,6 @@ export async function buildAnatomyPreviewPayload(
     imageWidth: coordinateSpace.width,
     imageHeight: coordinateSpace.height,
     coordinateSpace,
-    hotspots: createHotspots({
-      rootNode: params.rootNode,
-      coordinateSpace,
-      decomposition: params.decomposition,
-    }),
+    hotspots,
   };
 }

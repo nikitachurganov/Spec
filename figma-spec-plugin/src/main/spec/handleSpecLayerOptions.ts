@@ -51,8 +51,24 @@ export type HandleSpecLayerOptionsResult =
     }
   | { ok: false; message: string };
 
+export type LoadedSpecLayerOptionsPayload = Extract<HandleSpecLayerOptionsResult, { ok: true }>;
+export type GetSpecLayerOptionsParams = {
+  forceRefresh?: boolean;
+};
+
 const anatomyPreviewCacheByRootId = new Map<string, AnatomyPreviewPayload>();
 const specPreviewCacheByRootId = new Map<string, AnatomyPreviewPayload>();
+const DEBUG_LAYER_LOAD_PERFORMANCE = false;
+
+export function clearSpecLayerOptionsCaches(rootId?: string): void {
+  if (rootId) {
+    anatomyPreviewCacheByRootId.delete(rootId);
+    specPreviewCacheByRootId.delete(rootId);
+    return;
+  }
+  anatomyPreviewCacheByRootId.clear();
+  specPreviewCacheByRootId.clear();
+}
 
 function shouldIncludeSpecHotspot(kind: string, isRoot: boolean): boolean {
   if (isRoot) return true;
@@ -84,8 +100,11 @@ function buildSpecPreviewPayloadFromAnatomy(params: {
 
 export async function handleGetSpecLayerOptions(
   settings: PluginSettings,
-  sourceRoot?: SceneNode
+  sourceRoot?: SceneNode,
+  params: GetSpecLayerOptionsParams = {}
 ): Promise<HandleSpecLayerOptionsResult> {
+  if (DEBUG_LAYER_LOAD_PERFORMANCE) console.time('[layers] total');
+  if (DEBUG_LAYER_LOAD_PERFORMANCE) console.time('[layers] source resolve');
   await ensureDocumentReadyForTraversal();
 
   let root: SceneNode | null = sourceRoot ?? null;
@@ -93,6 +112,8 @@ export async function handleGetSpecLayerOptions(
     const selection = figma.currentPage.selection;
 
     if (selection.length === 0) {
+      if (DEBUG_LAYER_LOAD_PERFORMANCE) console.timeEnd('[layers] source resolve');
+      if (DEBUG_LAYER_LOAD_PERFORMANCE) console.timeEnd('[layers] total');
       return {
         ok: false,
         message: 'Выберите компонент или фрейм, чтобы настроить слои для Spec.',
@@ -100,6 +121,8 @@ export async function handleGetSpecLayerOptions(
     }
 
     if (selection.length > 1) {
+      if (DEBUG_LAYER_LOAD_PERFORMANCE) console.timeEnd('[layers] source resolve');
+      if (DEBUG_LAYER_LOAD_PERFORMANCE) console.timeEnd('[layers] total');
       return {
         ok: false,
         message: 'Выберите один компонент или фрейм.',
@@ -110,13 +133,22 @@ export async function handleGetSpecLayerOptions(
   }
 
   if (!isSupportedRoot(root)) {
+    if (DEBUG_LAYER_LOAD_PERFORMANCE) console.timeEnd('[layers] source resolve');
+    if (DEBUG_LAYER_LOAD_PERFORMANCE) console.timeEnd('[layers] total');
     return {
       ok: false,
       message: 'Выберите компонент или фрейм, чтобы настроить слои для Spec.',
     };
   }
+  if (DEBUG_LAYER_LOAD_PERFORMANCE) console.timeEnd('[layers] source resolve');
 
+  if (params.forceRefresh) {
+    clearSpecLayerOptionsCaches(root.id);
+  }
+
+  if (DEBUG_LAYER_LOAD_PERFORMANCE) console.time('[layers] build tree');
   const collected = await collectSpecLayerOptions(root);
+  if (DEBUG_LAYER_LOAD_PERFORMANCE) console.timeEnd('[layers] build tree');
 
   const selectedLayerPaths = resolveSelectedPaths(
     settings.specSelectedLayerPaths || [],
@@ -138,6 +170,7 @@ export async function handleGetSpecLayerOptions(
   let anatomyPreviewPayload: AnatomyPreviewPayload | null = null;
   let specPreviewPayload: AnatomyPreviewPayload | null = null;
   try {
+    if (DEBUG_LAYER_LOAD_PERFORMANCE) console.time('[layers] build preview payload');
     const cached = anatomyPreviewCacheByRootId.get(root.id);
     const cachedSpec = specPreviewCacheByRootId.get(root.id);
     if (cached && cachedSpec) {
@@ -157,13 +190,14 @@ export async function handleGetSpecLayerOptions(
       anatomyPreviewPayload = built;
       specPreviewPayload = builtSpec;
     }
+    if (DEBUG_LAYER_LOAD_PERFORMANCE) console.timeEnd('[layers] build preview payload');
   } catch (error) {
     console.warn('[Anatomy Preview] Failed to build preview payload', error);
     anatomyPreviewPayload = null;
     specPreviewPayload = null;
   }
 
-  return {
+  const payload: LoadedSpecLayerOptionsPayload = {
     ok: true,
     rootId: root.id,
     rootName: collected.rootName,
@@ -174,4 +208,12 @@ export async function handleGetSpecLayerOptions(
     specPreviewPayload,
     anatomyPreviewPayload,
   };
+  if (DEBUG_LAYER_LOAD_PERFORMANCE) {
+    console.time('[layers] payload serialize');
+    const payloadSizeBytes = JSON.stringify(payload).length;
+    console.timeEnd('[layers] payload serialize');
+    console.log('[layers] payload bytes', payloadSizeBytes);
+    console.timeEnd('[layers] total');
+  }
+  return payload;
 }
