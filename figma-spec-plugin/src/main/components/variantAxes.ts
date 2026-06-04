@@ -10,12 +10,24 @@ export type VariantCell = {
   component: ComponentNode;
 };
 
-export const VARIANTS_TEMPLATE_NAME = '.DS-Template-variants';
+export const DS_ASSETS_LIBRARY_NAME = 'DS Assets';
+export const VARIANTS_TEMPLATE_NAME = 'DS-Template-variants';
+export const LEGACY_VARIANTS_TEMPLATE_NAME = '.DS-Template-variants';
+export const VARIANTS_TEMPLATE_NAME_CANDIDATES = [
+  VARIANTS_TEMPLATE_NAME,
+  LEGACY_VARIANTS_TEMPLATE_NAME,
+] as const;
+export const VARIANTS_TEMPLATE_UNAVAILABLE_MESSAGE =
+  'Не найден шаблон DS-Template-variants. Откройте файл DS Assets и запустите плагин один раз, чтобы ключ шаблона сохранился автоматически, либо добавьте шаблон локально.';
+export const VARIANTS_TEMPLATE_KEY_IMPORT_FAILED_MESSAGE =
+  'Не удалось импортировать DS-Template-variants по component key. Проверьте, что компонент опубликован в библиотеке DS Assets и key указан корректно.';
+export const VARIANTS_TEMPLATE_NOT_PUBLISHED_MESSAGE =
+  'Шаблон DS-Template-variants не найден среди опубликованных компонентов подключённых библиотек. Проверьте, что компонент опубликован в библиотеке DS Assets как компонент, а не только находится в файле библиотеки.';
 export const ASSET_GROUP_TEMPLATE_NAME = '.DS-Template-asset-group';
 export const BRACKET_TEMPLATE_NAME = '.DS-Template-Bracket';
 
 export const VARIANTS_TEMPLATE_MISSING_WARNING =
-  '[Components & properties] .DS-Template-variants not found. Using fallback layout.';
+  '[Components & properties] Template "DS-Template-variants" was not found locally, by configured key, or among available published library components. Using fallback layout.';
 
 export const NOT_COMPONENT_SET_MESSAGE =
   'Components & properties: выбранный объект не является component set или вариантом компонента';
@@ -68,7 +80,7 @@ export function getVariantAxes(componentSet: ComponentSetNode): VariantAxis[] {
 }
 
 /**
- * Maps parsed variant axes to `.DS-Template-variants` component properties.
+ * Maps parsed variant axes to `DS-Template-variants` component properties.
  * - `horizontal` → top edge labels (first axis)
  * - `vertical` → left edge labels (second axis)
  * Additional axes (>2) use the first value per axis when resolving cells.

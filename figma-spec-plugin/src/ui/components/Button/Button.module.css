@@ -125,6 +125,49 @@
   pointer-events: none;
 }
 
+/* ── Danger ─────────────────────────────────────────────────────────────── */
+
+.danger {
+  background: #ffffff;
+  color: #d92d20;
+  font-weight: 400;
+  border: 1px solid #d92d20;
+}
+
+.danger:hover:not(:disabled):not(.loading),
+.danger:not(.disabled):not(.loading):hover {
+  background: rgba(217, 45, 32, 0.06);
+  color: #d92d20;
+  border-color: #d92d20;
+}
+
+.danger:active:not(:disabled):not(.loading),
+.danger:not(.disabled):not(.loading):active {
+  background: rgba(217, 45, 32, 0.12);
+  color: #d92d20;
+  border-color: #d92d20;
+}
+
+.danger:disabled:not(.loading),
+.danger.disabled:not(.loading) {
+  background: #f2f2f2;
+  color: #afafaf;
+  border-color: #d2d1d1;
+  cursor: default;
+  opacity: 1;
+}
+
+.danger.loading,
+.danger.loading:hover,
+.danger.loading:active {
+  background: #ffffff;
+  color: transparent;
+  border-color: #d92d20;
+  opacity: 1;
+  cursor: default;
+  pointer-events: none;
+}
+
 /* ── Link ──────────────────────────────────────────────────────────────────── */
 
 .link {
@@ -229,6 +272,16 @@
 .buttonSmall.secondary.loading .spinner {
   border: 3px solid rgba(51, 51, 51, 0.2);
   border-top-color: #333333;
+}
+
+.buttonMedium.danger.loading .spinner {
+  border: 4px solid rgba(217, 45, 32, 0.2);
+  border-top-color: #d92d20;
+}
+
+.buttonSmall.danger.loading .spinner {
+  border: 3px solid rgba(217, 45, 32, 0.2);
+  border-top-color: #d92d20;
 }
 
 @keyframes buttonSpinner {

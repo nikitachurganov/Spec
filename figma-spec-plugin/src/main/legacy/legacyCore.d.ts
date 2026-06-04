@@ -1,6 +1,10 @@
 /// <reference types="@figma/plugin-typings" />
 
 import type { PluginSettings } from '../../shared/settings';
+import type {
+  GenerationProgressStatus,
+  GenerationProgressStepId,
+} from '../../shared/messages';
 
 /**
  * Builds the DS specification wrapper for the given pre-validated root node.
@@ -11,5 +15,14 @@ import type { PluginSettings } from '../../shared/settings';
  */
 export declare function buildSpecification(
   settings: PluginSettings,
-  root: SceneNode
+  root: SceneNode,
+  progress?: {
+    onStepUpdate?: (
+      stepId: GenerationProgressStepId,
+      status: GenerationProgressStatus,
+      description?: string,
+      error?: string
+    ) => void;
+  },
+  anatomySpecRoot?: SceneNode
 ): Promise<FrameNode>;

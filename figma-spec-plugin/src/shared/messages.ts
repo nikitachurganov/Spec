@@ -1,3 +1,4 @@
+import type { ComponentSetVariantOption } from './componentSetVariants';
 import type { PluginSettings } from './settings';
 import type { AnatomyPreviewPayload } from './anatomyPreview';
 import type { HeaderSettings } from './headerSettings';
@@ -6,6 +7,7 @@ export type SpecLayerOption = {
   path: string;
   name: string;
   type: string;
+  componentRole?: 'component-set' | 'master-component' | 'child-component' | 'none';
   depth: number;
   parentPath?: string;
   isAutoSelected: boolean;
@@ -20,6 +22,8 @@ export type BuildSpecificationMessage = {
   type: 'BUILD_SPECIFICATION';
   payload: {
     settings: PluginSettings;
+    /** Present when the selected source is a Component Set and a variant was chosen for Spec/Anatomy. */
+    selectedVariantForSpecAndAnatomyId?: string;
   };
 };
 
@@ -68,6 +72,13 @@ export type SetHeaderTemplateFromSelectionMessage = {
   type: 'SET_HEADER_TEMPLATE_FROM_SELECTION';
 };
 
+export type DeleteGeneratedDocumentationMessage = {
+  type: 'DELETE_GENERATED_DOCUMENTATION';
+  payload: {
+    nodeId: string;
+  };
+};
+
 export type UiToMainMessage =
   | BuildSpecificationMessage
   | GetSettingsMessage
@@ -75,6 +86,7 @@ export type UiToMainMessage =
   | GetSpecLayerOptionsMessage
   | GetHeaderOptionsMessage
   | SetHeaderTemplateFromSelectionMessage
+  | DeleteGeneratedDocumentationMessage
   | SaveSpecSelectedLayersMessage
   | SaveAnatomySelectedLayersMessage
   | ResizePluginMessage;
@@ -83,6 +95,7 @@ export type SpecificationBuiltMessage = {
   type: 'SPECIFICATION_BUILT';
   payload: {
     name: string;
+    nodeId: string;
   };
 };
 
@@ -144,6 +157,18 @@ export type ActiveSourceLoadingMessage = {
   };
 };
 
+export type ActiveSourceSummaryMessage = {
+  type: 'ACTIVE_SOURCE_SUMMARY';
+  payload: {
+    sourceNodeId: string | null;
+    sourceName: string | null;
+    sourceType: string | null;
+    canGenerate: boolean;
+    componentSetVariants?: ComponentSetVariantOption[];
+    defaultVariantForSpecAndAnatomyId?: string | null;
+  };
+};
+
 export type ReadyMessage = {
   type: 'READY';
 };
@@ -166,6 +191,52 @@ export type HeaderTemplateSavedMessage = {
   };
 };
 
+export type GenerationProgressStatus = 'pending' | 'running' | 'success' | 'error' | 'skipped';
+
+export type GenerationProgressStepId =
+  | 'prepare'
+  | 'resolve-source'
+  | 'components-properties'
+  | 'anatomy'
+  | 'behavior'
+  | 'use-case'
+  | 'spec'
+  | 'accessibility'
+  | 'themes'
+  | 'position'
+  | 'finish';
+
+export type GenerationProgressStep = {
+  id: GenerationProgressStepId;
+  title: string;
+  status: GenerationProgressStatus;
+  description?: string;
+  error?: string;
+};
+
+export type GenerationProgressStartMessage = {
+  type: 'generation-progress-start';
+  steps: GenerationProgressStep[];
+};
+
+export type GenerationProgressUpdateMessage = {
+  type: 'generation-progress-update';
+  stepId: GenerationProgressStepId;
+  status: GenerationProgressStatus;
+  description?: string;
+  error?: string;
+};
+
+export type GenerationProgressCompleteMessage = {
+  type: 'generation-progress-complete';
+};
+
+export type GenerationProgressErrorMessage = {
+  type: 'generation-progress-error';
+  stepId?: GenerationProgressStepId;
+  error: string;
+};
+
 export type MainToUiMessage =
   | SpecificationBuiltMessage
   | ErrorMessage
@@ -177,4 +248,9 @@ export type MainToUiMessage =
   | ActiveSourceClearedMessage
   | ActiveSourcePendingMessage
   | ActiveSourceLoadingMessage
+  | ActiveSourceSummaryMessage
+  | GenerationProgressStartMessage
+  | GenerationProgressUpdateMessage
+  | GenerationProgressCompleteMessage
+  | GenerationProgressErrorMessage
   | ReadyMessage;

@@ -9,6 +9,8 @@ type SpecLayerTreeNode = SpecLayerOption & {
   children: SpecLayerTreeNode[];
 };
 
+type TreeComponentRole = NonNullable<SpecLayerOption['componentRole']>;
+
 export type SpecLayerMultiSelectProps = {
   options: SpecLayerOption[];
   selectedPaths: string[];
@@ -49,14 +51,42 @@ function buildTree(options: SpecLayerOption[]): SpecLayerTreeNode[] {
   return roots;
 }
 
-function toTreeNodeData(items: SpecLayerTreeNode[]): TreeNodeData[] {
-  return items.map((item) => ({
-    key: item.path,
-    title: item.name,
-    type: item.isRoot ? ('master' as const) : item.isComponentBoundary ? ('child' as const) : undefined,
-    disabled: !item.isSelectable,
-    children: toTreeNodeData(item.children),
-  }));
+function resolveComponentRole(
+  item: SpecLayerTreeNode,
+  parent: SpecLayerTreeNode | null
+): TreeComponentRole {
+  const fromPayload = item.componentRole;
+  if (fromPayload) return fromPayload;
+
+  // Backward-compatible fallback for stale payloads without `componentRole`.
+  if (item.type === 'COMPONENT_SET') return 'component-set';
+  if (item.type === 'COMPONENT') {
+    if (parent?.type === 'COMPONENT_SET') return 'none';
+    return 'master-component';
+  }
+  if (item.type === 'INSTANCE') return 'child-component';
+  return 'none';
+}
+
+function toTreeNodeData(items: SpecLayerTreeNode[], parent: SpecLayerTreeNode | null = null): TreeNodeData[] {
+  return items.map((item) => {
+    const role = resolveComponentRole(item, parent);
+
+    return {
+      // Visibility is driven only by tree traversal/input options.
+      // Component role controls icon only.
+      key: item.path,
+      title: item.name,
+      type:
+        role === 'component-set' || role === 'master-component'
+          ? ('master' as const)
+          : role === 'child-component'
+            ? ('child' as const)
+            : undefined,
+      disabled: !item.isSelectable,
+      children: toTreeNodeData(item.children, item),
+    };
+  });
 }
 
 function collectDefaultExpandedKeys(nodes: TreeNodeData[], depth = 0): string[] {

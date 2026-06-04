@@ -2,7 +2,12 @@
 
 import { buildSpecification } from './builders/buildSpecification';
 import { normalizePluginSettings } from './settings/normalizeSettings';
-import type { UiToMainMessage } from '../shared/messages';
+import type {
+  GenerationProgressStatus,
+  GenerationProgressStep,
+  GenerationProgressStepId,
+  UiToMainMessage,
+} from '../shared/messages';
 import { postToUi } from './postToUi';
 import { PLUGIN_UI_SIZE, STORAGE_KEY_SETTINGS } from '../shared/constants';
 import { DEFAULT_PLUGIN_SETTINGS, type PluginSettings } from '../shared/settings';
@@ -14,6 +19,12 @@ import {
 } from './spec/handleSpecLayerOptions';
 import { handleGetHeaderOptions } from './header/handleHeaderOptions';
 import { saveHeaderTemplateFromSelection } from './header/resolveHeaderComponent';
+import { logPluginPerf, perfNow } from './generation/pluginPerf';
+import {
+  loadComponentSetVariantOptions,
+  resolveAnatomySpecGenerationSource,
+  resolveDefaultVariantId,
+} from './source/componentSetVariantOptions';
 
 declare const __html__: string;
 const MIN_UI_WIDTH = 360;
@@ -22,6 +33,8 @@ const MAX_UI_WIDTH = 900;
 const MAX_UI_HEIGHT = 1000;
 const SOURCE_SELECTION_DEBOUNCE_MS = 500;
 const DEBUG_LAYER_LOAD_PERFORMANCE = false;
+
+let isGenerating = false;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -54,6 +67,19 @@ function areStringArraysEqual(a: string[], b: string[]): boolean {
 }
 
 const GENERATED_DOC_NAME_PREFIXES = ['DS specification'] as const;
+const GENERATION_STEP_TITLES: Record<GenerationProgressStepId, string> = {
+  prepare: 'Подготовка документации',
+  'resolve-source': 'Проверка выбранного компонента',
+  'components-properties': 'Components & properties',
+  anatomy: 'Anatomy',
+  behavior: 'Behavior',
+  'use-case': 'Use case',
+  spec: 'Spec',
+  accessibility: 'Accessibility',
+  themes: 'Themes',
+  position: 'Размещение документации',
+  finish: 'Завершение',
+};
 
 let activeSourceNodeId: string | null = null;
 let pendingSourceNodeId: string | null = null;
@@ -141,6 +167,29 @@ async function resolveActiveSourceNode(): Promise<SceneNode | null> {
   return node;
 }
 
+async function resolveGenerationSource(): Promise<SceneNode | null> {
+  const fromActive = await resolveActiveSourceNode();
+  if (fromActive) return fromActive;
+
+  const selected = findValidSourceCandidate(figma.currentPage.selection);
+  if (selected) {
+    activeSourceNodeId = selected.id;
+    return selected;
+  }
+
+  return null;
+}
+
+function notifyActiveSourcePending(source: SceneNode): void {
+  postToUi({
+    type: 'ACTIVE_SOURCE_PENDING',
+    payload: {
+      sourceNodeId: source.id,
+      sourceName: source.name,
+    },
+  });
+}
+
 function clearSelectionDebounceTimer(): void {
   if (selectionDebounceTimer !== null) {
     clearTimeout(selectionDebounceTimer);
@@ -154,6 +203,80 @@ function estimatePayloadSizeBytes(payload: unknown): number {
   } catch {
     return 0;
   }
+}
+
+function sendGenerationProgressStart(steps: GenerationProgressStep[]): void {
+  postToUi({ type: 'generation-progress-start', steps });
+}
+
+function updateGenerationStep(
+  stepId: GenerationProgressStepId,
+  status: GenerationProgressStatus,
+  description?: string,
+  error?: string
+): void {
+  postToUi({
+    type: 'generation-progress-update',
+    stepId,
+    status,
+    description,
+    error,
+  });
+}
+
+function completeGenerationProgress(): void {
+  postToUi({ type: 'generation-progress-complete' });
+}
+
+function failGenerationProgress(stepId: GenerationProgressStepId | undefined, error: string): void {
+  postToUi({
+    type: 'generation-progress-error',
+    stepId,
+    error,
+  });
+}
+
+function createGenerationProgressSteps(settings: PluginSettings): GenerationProgressStep[] {
+  const steps: GenerationProgressStep[] = [
+    { id: 'prepare', title: GENERATION_STEP_TITLES.prepare, status: 'pending' },
+    { id: 'resolve-source', title: GENERATION_STEP_TITLES['resolve-source'], status: 'pending' },
+  ];
+
+  if (settings.componentsProperties) {
+    steps.push({
+      id: 'components-properties',
+      title: GENERATION_STEP_TITLES['components-properties'],
+      status: 'pending',
+    });
+  }
+  if (settings.componentAnatomy) {
+    steps.push({ id: 'anatomy', title: GENERATION_STEP_TITLES.anatomy, status: 'pending' });
+  }
+  if (settings.behavior) {
+    steps.push({ id: 'behavior', title: GENERATION_STEP_TITLES.behavior, status: 'pending' });
+  }
+  if (settings.usageScenarios) {
+    steps.push({ id: 'use-case', title: GENERATION_STEP_TITLES['use-case'], status: 'pending' });
+  }
+  if (settings.spec) {
+    steps.push({ id: 'spec', title: GENERATION_STEP_TITLES.spec, status: 'pending' });
+  }
+  if (settings.accessibility) {
+    steps.push({
+      id: 'accessibility',
+      title: GENERATION_STEP_TITLES.accessibility,
+      status: 'pending',
+    });
+  }
+  if (settings.themes) {
+    steps.push({ id: 'themes', title: GENERATION_STEP_TITLES.themes, status: 'pending' });
+  }
+
+  steps.push(
+    { id: 'position', title: GENERATION_STEP_TITLES.position, status: 'pending' },
+    { id: 'finish', title: GENERATION_STEP_TITLES.finish, status: 'pending' }
+  );
+  return steps;
 }
 
 function postLoadedSourcePayload(
@@ -348,14 +471,9 @@ function scheduleSourceChange(candidate: SceneNode): void {
   const requestId = selectionRequestId;
 
   pendingSourceNodeId = candidate.id;
+  activeSourceNodeId = candidate.id;
 
-  postToUi({
-    type: 'ACTIVE_SOURCE_PENDING',
-    payload: {
-      sourceNodeId: candidate.id,
-      sourceName: candidate.name,
-    },
-  });
+  notifyActiveSourcePending(candidate);
 
   selectionDebounceTimer = setTimeout(() => {
     selectionDebounceTimer = null;
@@ -435,36 +553,53 @@ async function acceptPendingSource(sourceNodeId: string, requestId: number): Pro
   await postSpecLayerOptionsForSource(node, requestId);
 }
 
-async function handleSelectionChange(): Promise<void> {
+function postActiveSourceSummary(): void {
   const selection = figma.currentPage.selection;
-
-  if (selection.length === 0) {
-    await clearActiveSource('empty-selection');
-    return;
-  }
-
   const candidate = findValidSourceCandidate(selection);
 
   if (!candidate) {
-    if (selectionIsOnlyGeneratedDocumentation(selection)) {
-      if (pendingSourceNodeId !== null) {
-        cancelPendingSourceLoad();
-        if (activeSourceNodeId) {
-          await reloadActiveSourceWithoutDebounce();
-        } else {
-          await postNoSourceState('generated-doc-selection');
-        }
-        return;
-      }
-      clearSelectionDebounceTimer();
-      pendingSourceNodeId = null;
-      return;
-    }
-    await clearActiveSource('no-valid-source');
+    activeSourceNodeId = null;
+    readySourceNodeId = null;
+    postToUi({
+      type: 'ACTIVE_SOURCE_SUMMARY',
+      payload: {
+        sourceNodeId: null,
+        sourceName: null,
+        sourceType: null,
+        canGenerate: false,
+        componentSetVariants: [],
+        defaultVariantForSpecAndAnatomyId: null,
+      },
+    });
     return;
   }
 
-  scheduleSourceChange(candidate);
+  if (activeSourceNodeId !== candidate.id) {
+    readySourceNodeId = null;
+  }
+
+  activeSourceNodeId = candidate.id;
+
+  const componentSetVariants =
+    candidate.type === 'COMPONENT_SET'
+      ? loadComponentSetVariantOptions(candidate)
+      : [];
+  const defaultVariantForSpecAndAnatomyId =
+    candidate.type === 'COMPONENT_SET'
+      ? resolveDefaultVariantId(candidate, componentSetVariants)
+      : null;
+
+  postToUi({
+    type: 'ACTIVE_SOURCE_SUMMARY',
+    payload: {
+      sourceNodeId: candidate.id,
+      sourceName: candidate.name,
+      sourceType: candidate.type,
+      canGenerate: true,
+      componentSetVariants,
+      defaultVariantForSpecAndAnatomyId,
+    },
+  });
 }
 
 figma.showUI(__html__, {
@@ -473,19 +608,16 @@ figma.showUI(__html__, {
 });
 
 void (async () => {
+  const initStart = perfNow();
   const settings = await loadStoredSettings();
   postToUi({ type: 'SETTINGS_LOADED', payload: { settings } });
-  const source = findValidSourceCandidate(figma.currentPage.selection);
-  if (source) {
-    scheduleSourceChange(source);
-  } else {
-    await postNoSourceState('startup-no-source');
-  }
+  postActiveSourceSummary();
   postToUi({ type: 'READY' });
+  logPluginPerf('plugin init', initStart);
 })();
 
 figma.on('selectionchange', () => {
-  void handleSelectionChange();
+  postActiveSourceSummary();
 });
 
 figma.ui.onmessage = async (raw: unknown) => {
@@ -504,17 +636,68 @@ figma.ui.onmessage = async (raw: unknown) => {
         break;
       }
       case 'BUILD_SPECIFICATION': {
-        const settings = normalizePluginSettings(message.payload.settings);
-        await saveStoredSettings(settings);
-        const source = await resolveActiveSourceNode();
-        if (!source) {
-          postToUi({
-            type: 'ERROR',
-            payload: { message: 'Выберите компонент, фрейм или инстанс.' },
-          });
+        if (isGenerating) {
+          console.warn('[generation] already running, ignoring duplicate request');
           break;
         }
-        await buildSpecification(settings, source);
+        isGenerating = true;
+        let currentStepId: GenerationProgressStepId = 'prepare';
+        try {
+          const settings = normalizePluginSettings(message.payload.settings);
+          const progressSteps = createGenerationProgressSteps(settings);
+          sendGenerationProgressStart(progressSteps);
+          updateGenerationStep('prepare', 'running', 'Подготавливаем параметры сборки');
+          await saveStoredSettings(settings);
+          updateGenerationStep('prepare', 'success');
+          currentStepId = 'resolve-source';
+          updateGenerationStep('resolve-source', 'running', 'Проверяем выбранный компонент');
+          const source = await resolveGenerationSource();
+          if (!source) {
+            throw new Error('Выберите компонент, фрейм или инстанс.');
+          }
+
+          const anatomySpecResolved = await resolveAnatomySpecGenerationSource(
+            source,
+            message.payload.selectedVariantForSpecAndAnatomyId
+          );
+          if (!anatomySpecResolved.ok) {
+            throw new Error(anatomySpecResolved.message);
+          }
+
+          updateGenerationStep('resolve-source', 'success', source.name);
+          await buildSpecification(settings, {
+            sourceNode: source,
+            anatomySpecRoot: anatomySpecResolved.source,
+            progress: {
+              onStepUpdate: (stepId, status, description, error) => {
+                currentStepId = stepId;
+                updateGenerationStep(stepId, status, description, error);
+              },
+            },
+          });
+          currentStepId = 'finish';
+          updateGenerationStep('finish', 'running', 'Финализируем сборку');
+          updateGenerationStep('finish', 'success', 'Документация готова');
+          completeGenerationProgress();
+        } catch (error) {
+          const message = getErrorMessage(error);
+          updateGenerationStep(currentStepId, 'error', undefined, message);
+          failGenerationProgress(currentStepId, message);
+          throw error;
+        } finally {
+          isGenerating = false;
+        }
+        break;
+      }
+      case 'DELETE_GENERATED_DOCUMENTATION': {
+        const node = await getNodeByIdSafe(message.payload.nodeId);
+        if (!node) break;
+        if (!isGeneratedDocumentationNode(node)) break;
+        try {
+          node.remove();
+        } catch (removeError) {
+          console.warn('[generation] failed to remove generated documentation', removeError);
+        }
         break;
       }
       case 'GET_HEADER_OPTIONS': {
@@ -581,7 +764,7 @@ figma.ui.onmessage = async (raw: unknown) => {
       case 'GET_SPEC_LAYER_OPTIONS': {
         const requestTicket = ++selectionRequestId;
         clearSelectionDebounceTimer();
-        const source = await resolveActiveSourceNode();
+        const source = await resolveGenerationSource();
         if (!source) {
           if (requestTicket !== selectionRequestId) break;
           await postNoSourceState('manual-refresh-no-source');

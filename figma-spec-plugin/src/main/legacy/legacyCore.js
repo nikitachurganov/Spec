@@ -15,6 +15,13 @@ import { createSpecContainersEmptyState } from '../builders/buildSpecSection';
 import { parseContainers } from '../spec/parseContainers';
 import { buildDecompositionTree } from '../decomposition/buildDecompositionTree';
 import { getSpecBuildStyleContext, attachNodeToActiveStagingPage } from '../tokens/specStyleContext';
+import {
+  CONTAINER_CARD_CONTENT_MIN_HEIGHT,
+  ensureMinHeight,
+  normalizeCounterAxisAlignItems,
+  safeSetCounterAxisAlignItems,
+  SPEC_CARD_MIN_HEIGHT,
+} from '../figma/safeLayout';
 var FONT_PT_SANS_REGULAR = { family: 'PT Sans', style: 'Regular' };
 var FONT_PT_SANS_BOLD = { family: 'PT Sans', style: 'Bold' };
 
@@ -204,7 +211,8 @@ var SPEC_CARD_LAYOUT = {
   descriptionWidth: 420,
   rowGap: 20,
   previewMinHeight: 160,
-  containerCardContentHeight: 328,
+  contentMinHeight: CONTAINER_CARD_CONTENT_MIN_HEIGHT,
+  minCardHeight: SPEC_CARD_MIN_HEIGHT,
 };
 
 var INNER_ROW_WIDTH =
@@ -1398,6 +1406,49 @@ async function createPaddingOverlay(side, tokenizedValue, bounds) {
   return overlay;
 }
 
+function centerChildInAutoLayoutFrame(parent, child) {
+  if (!parent || !child || parent.layoutMode === 'NONE') return;
+
+  try {
+    var padL = parent.paddingLeft || 0;
+    var padR = parent.paddingRight || 0;
+    var padT = parent.paddingTop || 0;
+    var padB = parent.paddingBottom || 0;
+    var innerW = parent.width - padL - padR;
+    var innerH = parent.height - padT - padB;
+    var offsetX = padL + Math.max(0, (innerW - child.width) / 2);
+    var offsetY = padT + Math.max(0, (innerH - child.height) / 2);
+
+    if ('layoutPositioning' in child) {
+      child.layoutPositioning = 'ABSOLUTE';
+    }
+    child.x = Math.round(offsetX);
+    child.y = Math.round(offsetY);
+  } catch (error) {
+    console.warn('centerChildInAutoLayoutFrame skipped', parent.name || '', error);
+  }
+}
+
+function finalizeContainerSpecRowLayout(row, containerCard, previewCard) {
+  if (!row || !containerCard || !previewCard) return;
+
+  safeSetCounterAxisAlignItems(row, 'MIN', 'Container spec row');
+  try {
+    row.primaryAxisAlignItems = 'MIN';
+    row.primaryAxisSizingMode = 'AUTO';
+    row.counterAxisSizingMode = 'AUTO';
+    row.clipsContent = false;
+  } catch (error) {
+    console.warn('finalizeContainerSpecRowLayout row sizing skipped', error);
+  }
+
+  ensureMinHeight(previewCard, SPEC_CARD_MIN_HEIGHT);
+
+  if (previewCard.children.length > 0) {
+    centerChildInAutoLayoutFrame(previewCard, previewCard.children[0]);
+  }
+}
+
 async function createPreviewUnavailableWrap(messageStr, usableInnerWidth) {
   var wrap = createFrameNode('Padding overlay container', {
     fills: [],
@@ -1451,7 +1502,7 @@ async function createContainerPreviewCard(container, root, designTokens, section
     paddingRight: padLR,
     paddingBottom: padTB,
     paddingLeft: padLR,
-    counterAxisAlignItems: 'MIN',
+    counterAxisAlignItems: 'CENTER',
     primaryAxisAlignItems: 'CENTER',
     clipsContent: false,
     effects: SPEC_EFFECTS.cardShadow,
@@ -1469,7 +1520,7 @@ async function createContainerPreviewCard(container, root, designTokens, section
     card.paddingTop = padTB;
     card.paddingBottom = padTB;
     card.primaryAxisAlignItems = 'CENTER';
-    card.counterAxisAlignItems = 'MIN';
+    card.counterAxisAlignItems = 'CENTER';
   } catch (_previewPadAlignErr) {}
 
   try {
@@ -1497,10 +1548,10 @@ async function createContainerPreviewCard(container, root, designTokens, section
     card.resizeWithoutConstraints(previewCardW, card.height);
   } catch (_previewResizeErr) {}
 
-  try {
-    card.layoutAlign = 'STRETCH';
-  } catch (error) {
-    console.warn('Cannot set Container preview card layoutAlign STRETCH', error);
+  ensureMinHeight(card, SPEC_CARD_MIN_HEIGHT);
+
+  if (card.children.length > 0) {
+    centerChildInAutoLayoutFrame(card, card.children[0]);
   }
 
   return card;
@@ -1520,7 +1571,7 @@ async function createContainerSpecRow(container, index, root, designTokens, sect
     paddingRight: 0,
     paddingBottom: 0,
     paddingLeft: 0,
-    counterAxisAlignItems: 'CENTER',
+    counterAxisAlignItems: 'MIN',
     primaryAxisAlignItems: 'MIN',
     clipsContent: false,
   });
@@ -1528,15 +1579,12 @@ async function createContainerSpecRow(container, index, root, designTokens, sect
   row.clipsContent = false;
 
   var descCard = await createContainerCard(container, index, designTokens);
-  row.appendChild(descCard);
-
   var preview = await createContainerPreviewCard(container, root, designTokens, sections);
+
+  row.appendChild(descCard);
   row.appendChild(preview);
 
-  row.resizeWithoutConstraints(
-    descCard.width + preview.width + SPEC_CARD_LAYOUT.rowGap,
-    Math.max(descCard.height, preview.height)
-  );
+  finalizeContainerSpecRowLayout(row, descCard, preview);
 
   return row;
 }
@@ -2607,7 +2655,13 @@ function createFrameNode(name, options) {
     f.primaryAxisAlignItems = options.primaryAxisAlignItems;
   }
   if (options.counterAxisAlignItems !== undefined) {
-    f.counterAxisAlignItems = options.counterAxisAlignItems;
+    var counterAxisAlign = normalizeCounterAxisAlignItems(
+      options.counterAxisAlignItems,
+      name
+    );
+    if (counterAxisAlign !== undefined) {
+      safeSetCounterAxisAlignItems(f, counterAxisAlign, name);
+    }
   }
   if (options.layoutAlignItems !== undefined) {
     f.layoutAlignItems = options.layoutAlignItems;
@@ -3445,42 +3499,17 @@ async function createContainerCard(container, index, designTokens) {
 
   card.appendChild(content);
 
-  try {
-    content.layoutSizingHorizontal = 'FILL';
-    content.layoutSizingVertical = 'FILL';
-  } catch (_csl) {
-    /* ignore */
-  }
-  try {
-    content.layoutGrow = 1;
-  } catch (_contentGrowErr) {
-    /* ignore */
-  }
-  try {
-    content.layoutAlign = 'STRETCH';
-  } catch (_contentStretchErr) {
-    /* ignore */
-  }
   content.primaryAxisSizingMode = 'AUTO';
   content.counterAxisSizingMode = 'AUTO';
   content.clipsContent = false;
 
-  var minContentH = SPEC_CARD_LAYOUT.containerCardContentHeight;
-  if ('minHeight' in content) {
-    try {
-      content.minHeight = minContentH;
-    } catch (_contentMinHeightProp) {
-      if (content.height < minContentH) {
-        content.resize(Math.max(1, content.width), minContentH);
-      }
-    }
-  } else if (content.height < minContentH) {
-    try {
-      content.resize(Math.max(1, content.width), minContentH);
-    } catch (_contentMinH) {
-      /* ignore */
-    }
+  try {
+    content.layoutSizingHorizontal = 'FILL';
+  } catch (_contentFillWidthErr) {
+    /* ignore */
   }
+
+  ensureMinHeight(content, CONTAINER_CARD_CONTENT_MIN_HEIGHT);
 
   return card;
 }
@@ -3624,16 +3653,9 @@ async function createContainersSection(spec, root, designTokens, sections) {
     var brow = await createContainerSpecRow(spec.containers[ck], ck + 1, root, designTokens, sections);
 
     section.appendChild(brow);
-    try {
-      if (brow.children.length >= 2) {
-        var descCard = brow.children[0];
-        var previewCard = brow.children[1];
-        descCard.layoutSizingHorizontal = 'FIXED';
-        descCard.layoutSizingVertical = 'FILL';
-        previewCard.layoutSizingHorizontal = 'FILL';
-        previewCard.layoutSizingVertical = 'FILL';
-      }
-    } catch (_rowStretchErr) {}
+    if (brow.children.length >= 2) {
+      finalizeContainerSpecRowLayout(brow, brow.children[0], brow.children[1]);
+    }
 
     stretchInParent(brow);
     stretchChildHorizontal(brow);
@@ -4038,10 +4060,12 @@ async function tryApplyAnatomySemanticColors(root) {
  *
  * @param {object} sections Section toggles from `PluginSettings`.
  * @param {SceneNode} root  Pre-validated root node from the selection.
+ * @param {object} [progress] Optional progress callbacks from orchestration layer.
  * @returns {Promise<FrameNode>} The assembled `DS specification / …` wrapper.
  */
-async function buildSpecification(sections, root) {
+async function buildSpecification(sections, root, progress, anatomySpecRoot) {
   sections = normalizeSectionSettings(sections);
+  var specAndAnatomyRoot = anatomySpecRoot || root;
 
   if (!root || !isSupportedNode(root)) {
     throw new Error('buildSpecification: unsupported or missing root node');
@@ -4049,7 +4073,7 @@ async function buildSpecification(sections, root) {
 
   await loadSpecFonts();
   var designTokens = await loadSpecDesignTokens();
-  var decomposition = await buildDecompositionTree(root);
+  var decomposition = await buildDecompositionTree(specAndAnatomyRoot);
   var validPathsSet = new Set(Array.from(decomposition.nodeByPath.keys()).filter(Boolean));
   var filteredSpecSelectedPaths = (sections.specSelectedLayerPaths || []).filter(function (pathKey) {
     return validPathsSet.has(pathKey);
@@ -4057,7 +4081,7 @@ async function buildSpecification(sections, root) {
   var filteredAnatomySelectedPaths = (sections.anatomySelectedLayerPaths || []).filter(function (pathKey) {
     return validPathsSet.has(pathKey);
   });
-  var spec = await buildSpecObject(root, {
+  var spec = await buildSpecObject(specAndAnatomyRoot, {
     selectedLayerPaths: filteredSpecSelectedPaths,
     decomposition: decomposition,
   });
@@ -4087,10 +4111,11 @@ async function buildSpecification(sections, root) {
     root: root,
     deps: {
       stretchInParent: stretchInParent,
+      onStepUpdate: progress && progress.onStepUpdate ? progress.onStepUpdate : undefined,
       buildAnatomyBlock: async function () {
         if (!(sections.componentAnatomy || sections.anatomy)) return null;
 
-        var propertyMetadata = await AnatomyGenerator.getComponentPropertyMetadata(root);
+        var propertyMetadata = await AnatomyGenerator.getComponentPropertyMetadata(specAndAnatomyRoot);
 
         var anatomyOptions = await AnatomyGenerator.loadFonts({
           fontRegular: activeFontRegular,
@@ -4102,7 +4127,7 @@ async function buildSpecification(sections, root) {
         anatomyOptions.selectedLayerPaths = filteredAnatomySelectedPaths;
 
         var anatomyFrame = await AnatomyGenerator.createAnatomyFrame({
-          sourceNode: root,
+          sourceNode: specAndAnatomyRoot,
           title: 'Anatomy',
           options: anatomyOptions,
         });
@@ -4114,7 +4139,7 @@ async function buildSpecification(sections, root) {
 
         var containersSection = await createContainersSection(
           spec,
-          root,
+          specAndAnatomyRoot,
           designTokens,
           sections
         );

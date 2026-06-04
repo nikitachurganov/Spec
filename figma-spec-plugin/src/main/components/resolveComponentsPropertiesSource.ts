@@ -2,8 +2,10 @@
 
 export type ComponentsPropertiesSourceKind =
   | 'component-set'
+  | 'component'
   | 'child-component'
   | 'instance'
+  | 'frame'
   | 'unsupported';
 
 export type ComponentsPropertiesSourceInfo = {
@@ -31,6 +33,14 @@ export async function resolveComponentsPropertiesSource(
     };
   }
 
+  if (source.type === 'COMPONENT') {
+    return {
+      initialSource: source,
+      resolvedComponentSet: null,
+      sourceKind: 'component',
+    };
+  }
+
   if (source.type === 'INSTANCE') {
     const main = await source.getMainComponentAsync();
     if (main?.parent?.type === 'COMPONENT_SET') {
@@ -44,6 +54,14 @@ export async function resolveComponentsPropertiesSource(
       initialSource: source,
       resolvedComponentSet: null,
       sourceKind: 'unsupported',
+    };
+  }
+
+  if (source.type === 'FRAME') {
+    return {
+      initialSource: source,
+      resolvedComponentSet: null,
+      sourceKind: 'frame',
     };
   }
 

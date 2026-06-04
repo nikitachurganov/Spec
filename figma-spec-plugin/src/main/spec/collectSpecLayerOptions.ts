@@ -16,6 +16,28 @@ export type CollectSpecLayerOptionsResult = {
   decomposition: DecompositionTree;
 };
 
+function getTreeNodeComponentRole(
+  node: SceneNode
+): 'component-set' | 'master-component' | 'child-component' | 'none' {
+  if (node.type === 'COMPONENT_SET') {
+    return 'component-set';
+  }
+
+  if (node.type === 'COMPONENT') {
+    if (node.parent?.type === 'COMPONENT_SET') {
+      // Variant component inside a set is not a child component/instance.
+      return 'none';
+    }
+    return 'master-component';
+  }
+
+  if (node.type === 'INSTANCE') {
+    return 'child-component';
+  }
+
+  return 'none';
+}
+
 const SKIP_NAME_PREFIXES = [
   'Padding overlay',
   'Child overlay',
@@ -57,6 +79,7 @@ export async function collectSpecLayerOptions(
       path,
       name: decompositionNode.displayName || sceneNode.name || 'Layer',
       type: sceneNode.type,
+      componentRole: getTreeNodeComponentRole(sceneNode),
       depth: decompositionNode.depth,
       parentPath: decompositionNode.parentPath ?? undefined,
       isAutoSelected: autoSelectedSet.has(path),

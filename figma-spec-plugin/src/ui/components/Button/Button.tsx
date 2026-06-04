@@ -5,10 +5,11 @@ export type ButtonSize = 'medium' | 'small';
 
 export type ButtonProps = {
   children: ReactNode;
+  id?: string;
   onClick?: () => void;
   disabled?: boolean;
   loading?: boolean;
-  variant?: 'primary' | 'secondary' | 'link';
+  variant?: 'primary' | 'secondary' | 'danger' | 'link';
   size?: ButtonSize;
   className?: string;
   type?: ButtonHTMLAttributes<HTMLButtonElement>['type'];
@@ -20,6 +21,7 @@ function joinClassNames(...parts: Array<string | false | undefined>): string {
 
 export function Button({
   children,
+  id,
   onClick,
   disabled = false,
   loading = false,
@@ -33,6 +35,7 @@ export function Button({
 
   return (
     <button
+      id={id}
       type={type}
       className={joinClassNames(
         styles.button,

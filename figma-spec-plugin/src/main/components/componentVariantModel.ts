@@ -128,7 +128,7 @@ export function findVariantForCell(
   return match?.component ?? null;
 }
 
-/** Axis names for optional `.DS-Template-variants` component properties. */
+/** Axis names for optional `DS-Template-variants` component properties. */
 export function getTemplateAxisPropertyNames(model: ComponentVariantModel): {
   horizontal: string;
   vertical: string;

@@ -346,15 +346,6 @@ export async function initVariableByIdRegistry(): Promise<void> {
       registerVariableInIdRegistry(variable);
     }
 
-    const collections = await getLibraryVariableCollectionsSafe();
-    for (const collection of collections) {
-      const libVars = await getVariablesInLibraryCollectionSafe(collection.key);
-      for (const libVar of libVars) {
-        const imported = await importVariableByKeySafe(libVar.key);
-        if (imported) registerVariableInIdRegistry(imported, libVar.key);
-      }
-    }
-
     variableByIdRegistryReady = true;
   })();
 

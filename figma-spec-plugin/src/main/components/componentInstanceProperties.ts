@@ -242,15 +242,138 @@ const VERTICAL_ORIENTATION_VALUES = ['left', 'vertical', 'v'];
 
 export type AxisTemplateRole = 'horizontal' | 'vertical';
 
+export type AxisTemplateType = 'horizontal' | 'vertical';
+
+/**
+ * Sets the template `type` VARIANT property (e.g. `type: vertical` on left axis).
+ */
+export function applyTemplateAxisType(
+  instance: InstanceNode,
+  templateComponent: ComponentNode,
+  axisType: AxisTemplateType
+): boolean {
+  const definitions = getComponentPropertyDefinitions(templateComponent);
+  const applied = setInstancePropertyByVisibleName(instance, 'type', axisType, definitions);
+
+  if (DEBUG_COMPONENTS_PROPERTIES) {
+    console.log(`${LOG_PREFIX} type property`, {
+      axisType,
+      applied,
+      key: findComponentPropertyKey(instance, 'type', definitions),
+    });
+  }
+
+  return applied;
+}
+
+function buildPropertyKeyMap(
+  instance: InstanceNode,
+  definitions: ComponentPropertyDefinitions
+): Map<string, string> {
+  const map = new Map<string, string>();
+  const props = instance.componentProperties ?? {};
+
+  for (const [key, prop] of Object.entries(props)) {
+    const baseName = key.split('#')[0];
+    const names = new Set<string>([
+      baseName.toLowerCase(),
+      ...propertyNameCandidates(baseName).map((candidate) => candidate.toLowerCase()),
+    ]);
+    if ('name' in prop && typeof prop.name === 'string' && prop.name.trim() !== '') {
+      names.add(prop.name.toLowerCase());
+    }
+    for (const name of names) {
+      if (!map.has(name)) map.set(name, key);
+    }
+  }
+
+  for (const key of Object.keys(definitions)) {
+    const baseName = key.split('#')[0];
+    for (const candidate of propertyNameCandidates(baseName)) {
+      const normalized = candidate.toLowerCase();
+      if (!map.has(normalized)) map.set(normalized, key);
+    }
+  }
+
+  return map;
+}
+
+let cachedTemplateDefinitions: ComponentPropertyDefinitions | null = null;
+
+export function beginTemplatePropertyConfiguration(
+  templateComponent: ComponentNode
+): ComponentPropertyDefinitions {
+  cachedTemplateDefinitions = getComponentPropertyDefinitions(templateComponent);
+  return cachedTemplateDefinitions;
+}
+
+export function endTemplatePropertyConfiguration(): void {
+  cachedTemplateDefinitions = null;
+}
+
+function buildPropertiesPayloadFast(
+  instance: InstanceNode,
+  definitions: ComponentPropertyDefinitions,
+  entries: Record<string, string | boolean>
+): Record<string, string | boolean> {
+  const keyMap = buildPropertyKeyMap(instance, definitions);
+  const propsToSet: Record<string, string | boolean> = {};
+
+  for (const [visibleName, value] of Object.entries(entries)) {
+    const key =
+      keyMap.get(visibleName.toLowerCase()) ??
+      keyMap.get(visibleName.charAt(0).toUpperCase() + visibleName.slice(1).toLowerCase());
+    if (!key) continue;
+
+    propsToSet[key] =
+      typeof value === 'string'
+        ? resolvePropertyValueForSet(definitions, visibleName, value)
+        : value;
+  }
+
+  return propsToSet;
+}
+
+function buildPropertiesPayload(
+  instance: InstanceNode,
+  definitions: ComponentPropertyDefinitions,
+  entries: Record<string, string | boolean>
+): Record<string, string | boolean> {
+  return buildPropertiesPayloadFast(instance, definitions, entries);
+}
+
 export function configureAxisTemplateInstance(
   instance: InstanceNode,
   templateComponent: ComponentNode,
-  config: { horizontal: string; vertical: string }
-): void {
-  const definitions = getComponentPropertyDefinitions(templateComponent);
+  config: { horizontal: string; vertical: string; type?: AxisTemplateType }
+): boolean {
+  const definitions = cachedTemplateDefinitions ?? getComponentPropertyDefinitions(templateComponent);
+  const entries: Record<string, string | boolean> = {
+    horizontal: config.horizontal,
+    vertical: config.vertical,
+  };
+  if (config.type) {
+    entries.type = config.type;
+  }
 
-  setInstancePropertyByVisibleName(instance, 'horizontal', config.horizontal, definitions);
-  setInstancePropertyByVisibleName(instance, 'vertical', config.vertical, definitions);
+  const propsToSet = buildPropertiesPayloadFast(instance, definitions, entries);
+  if (Object.keys(propsToSet).length === 0) {
+    return false;
+  }
+
+  try {
+    instance.setProperties(propsToSet);
+    if (DEBUG_COMPONENTS_PROPERTIES) {
+      console.log(`${LOG_PREFIX} batch set axis props`, {
+        instanceName: instance.name,
+        propsToSet,
+      });
+    }
+    return true;
+  } catch (error) {
+    console.warn(`${LOG_PREFIX} batch setProperties failed`, error, propsToSet);
+    return false;
+  }
 }
 
 export function applyTemplateOrientation(

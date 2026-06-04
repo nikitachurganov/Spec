@@ -5,7 +5,13 @@ import {
   withHiddenSpecificationPreferences,
   type PluginSettings,
 } from '@shared/settings';
-import type { MainToUiMessage, SpecLayerOption } from '@shared/messages';
+import type { ComponentSetVariantOption } from '@shared/componentSetVariants';
+import type {
+  GenerationProgressStepId,
+  GenerationProgressStep,
+  MainToUiMessage,
+  SpecLayerOption,
+} from '@shared/messages';
 import type { AnatomyPreviewPayload } from '@shared/anatomyPreview';
 import { logSelectionPersistence } from '@shared/layerPaths';
 import { postToMain } from './postToMain';
@@ -13,9 +19,11 @@ import { AnatomyCombinedSelector } from './components/AnatomyCombinedSelector/An
 import { Button } from './components/Button';
 import { DecompositionTabs, type DecompositionTabId } from './components/DecompositionTabs';
 import { EmptyTabState } from './components/EmptyTabState';
+import { GenerationProgressModal } from './components/GenerationProgressModal/GenerationProgressModal';
 import { SpecCombinedSelector } from './components/SpecCombinedSelector/SpecCombinedSelector';
 import { SettingsPanel } from './components/SettingsPanel';
 import { StatusMessage } from './components/StatusMessage';
+import { VariantForSpecAnatomySelect } from './components/VariantForSpecAnatomySelect/VariantForSpecAnatomySelect';
 
 const NO_BLOCKS_ERROR = 'Выберите хотя бы один блок спецификации.';
 const NO_SOURCE_TREE_HINT = 'Компонент не выбран';
@@ -23,6 +31,19 @@ const SPEC_LAYER_EMPTY_HINT =
   'Выберите компонент или фрейм, чтобы настроить слои для Spec.';
 const ANATOMY_LAYER_EMPTY_HINT =
   'Выберите компонент или фрейм, чтобы настроить слои для анатомии.';
+const GENERATION_STEP_TITLES: Record<GenerationProgressStepId, string> = {
+  prepare: 'Подготовка документации',
+  'resolve-source': 'Проверка выбранного компонента',
+  'components-properties': 'Components & properties',
+  anatomy: 'Anatomy',
+  behavior: 'Behavior',
+  'use-case': 'Use case',
+  spec: 'Spec',
+  accessibility: 'Accessibility',
+  themes: 'Themes',
+  position: 'Размещение документации',
+  finish: 'Завершение',
+};
 
 function isMainMessage(data: unknown): data is MainToUiMessage {
   if (!data || typeof data !== 'object') return false;
@@ -75,6 +96,50 @@ function filterDecompositionOptionsForPurpose(
     }));
 }
 
+function createInitialGenerationSteps(settings: PluginSettings): GenerationProgressStep[] {
+  const steps: GenerationProgressStep[] = [
+    { id: 'prepare', title: GENERATION_STEP_TITLES.prepare, status: 'pending' },
+    { id: 'resolve-source', title: GENERATION_STEP_TITLES['resolve-source'], status: 'pending' },
+  ];
+
+  if (settings.componentsProperties) {
+    steps.push({
+      id: 'components-properties',
+      title: GENERATION_STEP_TITLES['components-properties'],
+      status: 'pending',
+    });
+  }
+  if (settings.componentAnatomy) {
+    steps.push({ id: 'anatomy', title: GENERATION_STEP_TITLES.anatomy, status: 'pending' });
+  }
+  if (settings.behavior) {
+    steps.push({ id: 'behavior', title: GENERATION_STEP_TITLES.behavior, status: 'pending' });
+  }
+  if (settings.usageScenarios) {
+    steps.push({ id: 'use-case', title: GENERATION_STEP_TITLES['use-case'], status: 'pending' });
+  }
+  if (settings.spec) {
+    steps.push({ id: 'spec', title: GENERATION_STEP_TITLES.spec, status: 'pending' });
+  }
+  if (settings.accessibility) {
+    steps.push({
+      id: 'accessibility',
+      title: GENERATION_STEP_TITLES.accessibility,
+      status: 'pending',
+    });
+  }
+  if (settings.themes) {
+    steps.push({ id: 'themes', title: GENERATION_STEP_TITLES.themes, status: 'pending' });
+  }
+
+  steps.push(
+    { id: 'position', title: GENERATION_STEP_TITLES.position, status: 'pending' },
+    { id: 'finish', title: GENERATION_STEP_TITLES.finish, status: 'pending' }
+  );
+
+  return steps;
+}
+
 export function App() {
   const MIN_UI_WIDTH = 360;
   const MIN_UI_HEIGHT = 520;
@@ -88,12 +153,25 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [generationProgressOpen, setGenerationProgressOpen] = useState(false);
+  const [generationProgressSteps, setGenerationProgressSteps] = useState<GenerationProgressStep[]>([]);
+  const [generationProgressComplete, setGenerationProgressComplete] = useState(false);
+  const [generationProgressError, setGenerationProgressError] = useState<string | null>(null);
+  const [lastGeneratedDocumentationNodeId, setLastGeneratedDocumentationNodeId] = useState<string | null>(
+    null
+  );
 
   const [specLayerOptions, setSpecLayerOptions] = useState<SpecLayerOption[]>([]);
   const [specLayerOptionsLoading, setSpecLayerOptionsLoading] = useState(false);
   const [specLayerOptionsError, setSpecLayerOptionsError] = useState<string | null>(null);
   const [specLayerRootId, setSpecLayerRootId] = useState<string | null>(null);
   const [specLayerRootName, setSpecLayerRootName] = useState<string | null>(null);
+  const [canGenerateFromSource, setCanGenerateFromSource] = useState(false);
+  const [sourceType, setSourceType] = useState<string | null>(null);
+  const [componentSetVariants, setComponentSetVariants] = useState<ComponentSetVariantOption[]>([]);
+  const [selectedVariantForSpecAndAnatomyId, setSelectedVariantForSpecAndAnatomyId] = useState<
+    string | null
+  >(null);
   const [specPreviewPayload, setSpecPreviewPayload] =
     useState<AnatomyPreviewPayload | null>(null);
   const [anatomyPreviewPayload, setAnatomyPreviewPayload] =
@@ -114,8 +192,23 @@ export function App() {
 
   useEffect(() => {
     postToMain({ type: 'GET_SETTINGS' });
+  }, []);
+
+  const decompositionNeedsTree = settings.spec || settings.componentAnatomy;
+
+  useEffect(() => {
+    if (!specLayerRootId || !decompositionNeedsTree) return;
+    if (specLayerOptionsLoading) return;
+    if (specLayerOptions.length > 0) return;
     requestSpecLayerOptions();
-  }, [requestSpecLayerOptions]);
+  }, [
+    specLayerRootId,
+    decompositionNeedsTree,
+    activeDecompositionTab,
+    specLayerOptions.length,
+    specLayerOptionsLoading,
+    requestSpecLayerOptions,
+  ]);
 
   useEffect(() => {
     function onWindowMessage(event: MessageEvent) {
@@ -132,6 +225,37 @@ export function App() {
       }
 
       if (data.type === 'READY') {
+        return;
+      }
+
+      if (data.type === 'ACTIVE_SOURCE_SUMMARY') {
+        setCanGenerateFromSource(data.payload.canGenerate);
+        setSourceType(data.payload.sourceType);
+        setComponentSetVariants(data.payload.componentSetVariants ?? []);
+        setSelectedVariantForSpecAndAnatomyId(
+          data.payload.defaultVariantForSpecAndAnatomyId ?? null
+        );
+        setSpecLayerRootId((prevId) => {
+          if (prevId !== data.payload.sourceNodeId) {
+            setSpecLayerOptions([]);
+            setSpecPreviewPayload(null);
+            setAnatomyPreviewPayload(null);
+            setSpecLayerOptionsError(null);
+            setSpecLayerOptionsLoading(false);
+          }
+          return data.payload.sourceNodeId;
+        });
+        setSpecLayerRootName(data.payload.sourceName);
+        if (!data.payload.canGenerate) {
+          setSourceType(null);
+          setComponentSetVariants([]);
+          setSelectedVariantForSpecAndAnatomyId(null);
+          setSpecLayerOptionsLoading(false);
+          setSpecLayerOptionsError(null);
+          setSpecLayerOptions([]);
+          setSpecPreviewPayload(null);
+          setAnatomyPreviewPayload(null);
+        }
         return;
       }
 
@@ -156,6 +280,10 @@ export function App() {
       }
 
       if (data.type === 'ACTIVE_SOURCE_CLEARED') {
+        setCanGenerateFromSource(false);
+        setSourceType(null);
+        setComponentSetVariants([]);
+        setSelectedVariantForSpecAndAnatomyId(null);
         setSpecLayerOptionsLoading(false);
         setSpecLayerOptionsError(null);
         setSpecLayerRootId(null);
@@ -207,11 +335,57 @@ export function App() {
       if (data.type === 'SPECIFICATION_BUILT') {
         setBusy(false);
         setError(null);
+        setLastGeneratedDocumentationNodeId(data.payload.nodeId);
         setStatus(
           data.payload.name
             ? `Спецификация собрана: ${data.payload.name}`
             : 'Спецификация собрана'
         );
+        return;
+      }
+
+      if (data.type === 'generation-progress-start') {
+        setGenerationProgressOpen(true);
+        setGenerationProgressSteps(data.steps);
+        setGenerationProgressComplete(false);
+        setGenerationProgressError(null);
+        setLastGeneratedDocumentationNodeId(null);
+        setBusy(true);
+        return;
+      }
+
+      if (data.type === 'generation-progress-update') {
+        setGenerationProgressSteps((prev) =>
+          prev.map((step) =>
+            step.id === data.stepId
+              ? {
+                  ...step,
+                  status: data.status,
+                  description: data.description ?? step.description,
+                  error: data.error,
+                }
+              : step
+          )
+        );
+        return;
+      }
+
+      if (data.type === 'generation-progress-complete') {
+        setGenerationProgressComplete(true);
+        return;
+      }
+
+      if (data.type === 'generation-progress-error') {
+        setGenerationProgressError(data.error);
+        if (data.stepId) {
+          setGenerationProgressSteps((prev) =>
+            prev.map((step) =>
+              step.id === data.stepId
+                ? { ...step, status: 'error', error: data.error }
+                : step
+            )
+          );
+        }
         return;
       }
 
@@ -334,11 +508,39 @@ export function App() {
     setBusy(true);
     setError(null);
     setStatus('');
+    setGenerationProgressOpen(true);
+    setGenerationProgressComplete(false);
+    setGenerationProgressError(null);
+    setLastGeneratedDocumentationNodeId(null);
+    setGenerationProgressSteps(createInitialGenerationSteps(settings));
     postToMain({
       type: 'BUILD_SPECIFICATION',
-      payload: { settings: withHiddenSpecificationPreferences(settings) },
+      payload: {
+        settings: withHiddenSpecificationPreferences(settings),
+        selectedVariantForSpecAndAnatomyId:
+          sourceType === 'COMPONENT_SET' && selectedVariantForSpecAndAnatomyId
+            ? selectedVariantForSpecAndAnatomyId
+            : undefined,
+      },
     });
-  }, [settings, busy]);
+  }, [settings, busy, sourceType, selectedVariantForSpecAndAnatomyId]);
+
+  const handleCloseGenerationProgress = useCallback(() => {
+    setGenerationProgressOpen(false);
+  }, []);
+
+  const handleDeleteGeneratedDocumentation = useCallback(() => {
+    if (!lastGeneratedDocumentationNodeId) {
+      setGenerationProgressOpen(false);
+      return;
+    }
+    postToMain({
+      type: 'DELETE_GENERATED_DOCUMENTATION',
+      payload: { nodeId: lastGeneratedDocumentationNodeId },
+    });
+    setLastGeneratedDocumentationNodeId(null);
+    setGenerationProgressOpen(false);
+  }, [lastGeneratedDocumentationNodeId]);
 
   const handleAnatomyLayerSelectionChange = useCallback((selectedLayerPaths: string[]) => {
     setSettings((prev) => {
@@ -372,12 +574,19 @@ export function App() {
   );
   const isSpecEnabled = Boolean(settings.spec);
   const isAnatomyEnabled = Boolean(settings.componentAnatomy);
-  const hasSource = Boolean(specLayerRootId);
+  const hasSource = Boolean(specLayerRootId) && canGenerateFromSource;
+  const isComponentSetSource = sourceType === 'COMPONENT_SET';
+  const variantSelectionRequired =
+    isComponentSetSource &&
+    (settings.spec || settings.componentAnatomy) &&
+    componentSetVariants.length > 0;
+  const hasVariantSelection =
+    !variantSelectionRequired || Boolean(selectedVariantForSpecAndAnatomyId);
   const startDisabled =
-    !hasSource ||
+    !canGenerateFromSource ||
     !hasAnySpecificationBlock(settings) ||
-    busy ||
-    specLayerOptionsLoading;
+    !hasVariantSelection ||
+    busy;
 
   const enableAnatomyBlock = useCallback(() => {
     handleSettingsChange({ ...settings, componentAnatomy: true });
@@ -432,6 +641,14 @@ export function App() {
               settings={settings}
               onChange={handleSettingsChange}
             />
+            {isComponentSetSource ? (
+              <VariantForSpecAnatomySelect
+                options={componentSetVariants}
+                value={selectedVariantForSpecAndAnatomyId}
+                disabled={!canGenerateFromSource || busy}
+                onChange={setSelectedVariantForSpecAndAnatomyId}
+              />
+            ) : null}
             {error ? <StatusMessage text={error} variant="error" /> : null}
             {!error && status ? <StatusMessage text={status} variant="success" /> : null}
           </div>
@@ -500,6 +717,15 @@ export function App() {
         className="app-resize-handle"
         aria-label="Resize plugin window"
         onPointerDown={handleResizePointerDown}
+      />
+      <GenerationProgressModal
+        open={generationProgressOpen}
+        steps={generationProgressSteps}
+        isComplete={generationProgressComplete}
+        error={generationProgressError}
+        generatedNodeId={lastGeneratedDocumentationNodeId}
+        onClose={handleCloseGenerationProgress}
+        onDelete={handleDeleteGeneratedDocumentation}
       />
     </div>
   );

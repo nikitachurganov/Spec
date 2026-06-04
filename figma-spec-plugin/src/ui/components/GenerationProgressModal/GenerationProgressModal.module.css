@@ -1,0 +1,313 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(24, 23, 23, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 16px;
+}
+
+.modalDialog {
+  width: min(100%, 520px);
+  max-height: calc(vh - 80px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  border: 1px solid #e5e5e5;
+  background: #ffffff;
+  color: #333333;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 58px;
+  gap: 8px;
+  width: 100%;
+  padding: 16px 20px;
+  background: #f7f7f7;
+  box-sizing: border-box;
+}
+
+.headerTitle {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 18px;
+  line-height: 130%;
+  font-weight: 700;
+}
+
+.dismissButton {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-self: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #a7a5a5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.dismissButton:hover:not(:disabled) {
+  color: #bbbbbb;
+}
+
+.dismissButton:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.dismissIcon {
+  width: 24px;
+  height: 24px;
+  color: currentColor;
+}
+
+.modalContent {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 20px;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: auto;
+}
+
+.timelineItem {
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.timelineItem:last-child {
+  padding-bottom: 0;
+}
+
+.timelineMarkerRow {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  column-gap: 8px;
+  align-items: center;
+  overflow: visible;
+}
+
+.timelineConnectorRow {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  column-gap: 8px;
+  overflow: visible;
+}
+
+.timelineRail {
+  width: 12px;
+  min-width: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: visible;
+}
+
+.timelineMarker {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1;
+  background: #bbbbbb;
+}
+
+.timelineMarker[data-status='running'] {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border: 2px solid #f58a0b;
+  border-top-color: transparent;
+  background: transparent;
+  animation: modalSpinner 760ms linear infinite;
+}
+
+.timelineMarker[data-status='success'] {
+  background: #f58a0b;
+}
+
+.timelineMarker[data-status='error'] {
+  background: #c83a32;
+}
+
+.timelineMarker[data-status='skipped'] {
+  background: #bbbbbb;
+}
+
+.timelineConnector {
+  width: 2px;
+  height: 26px;
+  flex: 0 0 26px;
+  border-radius: 10px;
+  background: #bbbbbb;
+}
+
+.timelineConnectorWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 36px;
+  padding-top: 4px;
+  padding-bottom: 6px;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.timelineConnectorContentSpacer {
+  min-height: 36px;
+}
+
+.timelineConnector[data-status='success'] {
+  background: #f58a0b;
+}
+
+.timelineConnector[data-status='running'] {
+  background: #bbbbbb;
+}
+
+.timelineConnector[data-status='error'] {
+  background: #bbbbbb;
+}
+
+.timelineConnector[data-status='skipped'] {
+  background: #bbbbbb;
+}
+
+.timelineContent {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  min-height: 12px;
+  overflow: visible;
+}
+
+.timelineTitle {
+  font-size: 16px;
+  line-height: 140%;
+  font-weight: 400;
+  color: #333333;
+}
+
+.timelineItem[data-status='pending'] .timelineTitle,
+.timelineItem[data-status='skipped'] .timelineTitle {
+  color: #bbbbbb;
+}
+
+.timelineItem[data-status='running'] .timelineTitle {
+  color: #333333;
+}
+
+.timelineItem[data-status='success'] .timelineTitle {
+  color: #333333;
+}
+
+.timelineItem[data-status='error'] .timelineTitle {
+  color: #333333;
+}
+
+.globalError {
+  border: 1px solid rgba(220, 38, 38, 0.28);
+  background: rgba(220, 38, 38, 0.08);
+  color: #7f1d1d;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 130%;
+}
+
+.deleteConfirmPopover {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 12px);
+  z-index: 20;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  min-width: 240px;
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.deleteConfirmTitle {
+  margin: 0;
+  font-size: 16px;
+  line-height: 140%;
+  font-weight: 400;
+  color: #333333;
+}
+
+.deleteConfirmActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.modalFooter {
+  position: relative;
+  width: 100%;
+  padding: 0 20px 20px;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.buttonGroup {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 8px;
+}
+
+.deleteButtonWrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+@keyframes modalSpinner {
+  to {
+    transform: rotate(360deg);
+  }
+}

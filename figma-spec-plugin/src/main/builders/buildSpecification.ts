@@ -18,6 +18,16 @@ import { createStyleResolver } from '../tokens/styleResolver';
 import { setSpecBuildStyleContext } from '../tokens/specStyleContext';
 import { resetThemeVariablesCache } from '../tokens/themeModeResolver';
 import { postToUi } from '../postToUi';
+import { resetGenerationTemplateCache } from '../components/templateLookupCache';
+import {
+  DEBUG_GENERATION_PERFORMANCE,
+  perfTimeEnd,
+  perfTimeStart,
+} from '../generation/generationPerformance';
+import type {
+  GenerationProgressStatus,
+  GenerationProgressStepId,
+} from '../../shared/messages';
 
 const SUPPORTED_ROOT_TYPES: ReadonlySet<NodeType> = new Set<NodeType>([
   'COMPONENT',
@@ -29,6 +39,15 @@ const SUPPORTED_ROOT_TYPES: ReadonlySet<NodeType> = new Set<NodeType>([
 type ValidatedSelection =
   | { ok: true; root: SceneNode }
   | { ok: false; message: string };
+
+type GenerationProgressCallbacks = {
+  onStepUpdate?: (
+    stepId: GenerationProgressStepId,
+    status: GenerationProgressStatus,
+    description?: string,
+    error?: string
+  ) => void;
+};
 
 function validateSelection(): ValidatedSelection {
   const selection = figma.currentPage.selection;
@@ -73,13 +92,21 @@ function getErrorMessage(error: unknown): string {
  * Atomic generation: build on a temporary unnamed page without switching the
  * user away from their current page, then move the finished wrapper back.
  */
+export type BuildSpecificationParams = {
+  sourceNode?: SceneNode;
+  progress?: GenerationProgressCallbacks;
+  /** Root for Anatomy and Spec; defaults to documentation root when omitted. */
+  anatomySpecRoot?: SceneNode;
+};
+
 export async function buildSpecification(
   settings: PluginSettings,
-  sourceNode?: SceneNode
+  params: BuildSpecificationParams = {}
 ): Promise<void> {
+  const progressCallbacks = params.progress;
   let root: SceneNode;
-  if (sourceNode) {
-    root = sourceNode;
+  if (params.sourceNode) {
+    root = params.sourceNode;
   } else {
     const validation = validateSelection();
     if (!validation.ok) {
@@ -89,25 +116,39 @@ export async function buildSpecification(
     root = validation.root;
   }
 
+  const anatomySpecRoot = params.anatomySpecRoot ?? root;
+
   await ensureDocumentReadyForTraversal();
+  progressCallbacks?.onStepUpdate?.('prepare', 'running', 'Подготавливаем ресурсы и токены');
+
+  resetGenerationTemplateCache();
+  perfTimeStart('[generation] total');
 
   clearLocalStylesCache();
   resetVariableApiCaches();
   resetVariableByIdRegistry();
   resetThemeVariablesCache();
-  await initVariableByIdRegistry();
+
+  const needsVariableRegistry = settings.spec === true || settings.themes === true;
+  if (needsVariableRegistry) {
+    await initVariableByIdRegistry();
+  }
 
   const resolver = createStyleResolver({
     useLibraryTokens: settings.useLibraryTokens !== false,
   });
   await resolver.init();
 
-  const spacingTokenResolver = await createSpacingTokenResolver();
-  await spacingTokenResolver.init();
+  const spacingTokenResolver = settings.spec
+    ? await createSpacingTokenResolver()
+    : null;
+  if (spacingTokenResolver) {
+    await spacingTokenResolver.init();
+  }
 
   setSpecBuildStyleContext({
     resolver,
-    spacingTokenResolver,
+    spacingTokenResolver: spacingTokenResolver ?? undefined,
     apply: {
       ...specApply,
       applyContainerPreviewCardTokens,
@@ -115,10 +156,13 @@ export async function buildSpecification(
   });
 
   try {
+    progressCallbacks?.onStepUpdate?.('prepare', 'success');
     const wrapper = await buildDocumentationAtomically({
       selectedNode: root,
       settings,
-      build: async () => legacyBuildSpecification(settings, root),
+      onStepUpdate: progressCallbacks?.onStepUpdate,
+      build: async () =>
+        legacyBuildSpecification(settings, root, progressCallbacks, anatomySpecRoot),
     });
 
     try {
@@ -138,8 +182,9 @@ export async function buildSpecification(
 
     postToUi({
       type: 'SPECIFICATION_BUILT',
-      payload: { name: wrapper.name },
+      payload: { name: wrapper.name, nodeId: wrapper.id },
     });
+    perfTimeEnd('[generation] total');
   } catch (error) {
     const errMsg = getErrorMessage(error);
     console.error('[Spec] buildSpecification failed:', errMsg, error);
